@@ -1797,11 +1797,6 @@ pub fn handle_help(_state: &mut SessionState, input: HelpInput) -> M1ndResult<He
         suggestions: resolution.suggestions,
         proof_state: projection.proof_state,
         next_suggested_tool: projection.next_suggested_tool,
-        next_suggested_target: projection.next_suggested_target,
-        next_step_hint: projection.next_step_hint,
-        confidence: projection.confidence,
-        why_this_next_step: projection.why_this_next_step,
-        what_is_missing: projection.what_is_missing,
         guidance: resolution.guidance,
     })
 }

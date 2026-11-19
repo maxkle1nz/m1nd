@@ -1,12 +1,12 @@
 // === m1nd-mcp/src/personality.rs ===
 //
 // v0.4.0: _m1nd metadata builder, suggest_next mapping, personality templates,
-// ANSI formatting, visual identity glyphs.
+// plain-text help formatting, visual identity glyphs.
 
 use serde_json::{json, Value};
 
 // ---------------------------------------------------------------------------
-// Visual Identity — glyphs and ANSI colors
+// Visual Identity — glyphs
 // ---------------------------------------------------------------------------
 
 /// m1nd logo glyphs with their semantic meanings.
@@ -16,60 +16,11 @@ pub const GLYPH_STRUCTURE: &str = "\u{2342}"; // ⍂ — structural analysis
 pub const GLYPH_DIMENSION: &str = "\u{1D53B}"; // 𝔻 — 4D dimensional scoring
 pub const GLYPH_CONNECTION: &str = "\u{27C1}"; // ⟁ — graph connections, edges
 
-/// ANSI escape codes for m1nd's color palette.
-pub const ANSI_CYAN: &str = "\x1b[38;2;0;212;255m";
-pub const ANSI_GOLD: &str = "\x1b[38;2;255;215;0m";
-pub const ANSI_MAGENTA: &str = "\x1b[38;2;255;0;255m";
-pub const ANSI_BLUE: &str = "\x1b[38;2;65;105;225m";
-pub const ANSI_GREEN: &str = "\x1b[38;2;0;255;136m";
-pub const ANSI_RED: &str = "\x1b[38;2;255;71;87m";
-pub const ANSI_DIM: &str = "\x1b[38;2;90;101;119m";
-pub const ANSI_RESET: &str = "\x1b[0m";
-pub const ANSI_BOLD: &str = "\x1b[1m";
-
-// ---------------------------------------------------------------------------
-// Gradient border builder
-// ---------------------------------------------------------------------------
-
-/// Build a gradient top border (cyan -> magenta -> blue -> green).
-pub fn gradient_top_border(width: usize) -> String {
-    let colors = [ANSI_CYAN, ANSI_MAGENTA, ANSI_BLUE, ANSI_GREEN];
-    let segment = width / colors.len();
-    let mut border = String::new();
-    for (i, color) in colors.iter().enumerate() {
-        let len = if i == colors.len() - 1 {
-            width - segment * i
-        } else {
-            segment
-        };
-        border.push_str(color);
-        for _ in 0..len {
-            border.push('\u{2550}'); // ═
-        }
-    }
-    border.push_str(ANSI_RESET);
-    border
-}
-
-/// Build a gradient bottom border.
-pub fn gradient_bottom_border(width: usize) -> String {
-    let colors = [ANSI_GREEN, ANSI_BLUE, ANSI_MAGENTA, ANSI_CYAN];
-    let segment = width / colors.len();
-    let mut border = String::new();
-    for (i, color) in colors.iter().enumerate() {
-        let len = if i == colors.len() - 1 {
-            width - segment * i
-        } else {
-            segment
-        };
-        border.push_str(color);
-        for _ in 0..len {
-            border.push('\u{2550}'); // ═
-        }
-    }
-    border.push_str(ANSI_RESET);
-    border
-}
+// Tool responses are read by agents, not terminals, and no human CLI path in
+// this crate renders them. There is deliberately no colour palette here: an
+// escape sequence inside a JSON tool result reaches the agent as `\u001b[...m`
+// noise it pays for in tokens, and hosts render it as garbage. Text rendered for
+// the wire is plain.
 
 // ---------------------------------------------------------------------------
 // suggest_next mapping (D5 from synthesis)
@@ -2247,122 +2198,73 @@ pub fn tool_docs() -> Vec<ToolDoc> {
 /// Format the full help index.
 pub fn format_help_index(show_temponizer: bool) -> String {
     let docs = tool_docs();
-    let width = 60;
     let mut out = String::new();
 
-    out.push_str(&gradient_top_border(width));
-    out.push('\n');
+    out.push_str("  m1nd  -- neuro-symbolic code graph engine\n");
     out.push_str(&format!(
-        "{}{}  m1nd  {}-- neuro-symbolic code graph engine{}\n",
-        ANSI_BOLD, ANSI_CYAN, ANSI_DIM, ANSI_RESET
+        "  {} SIGNAL  {} PATH  {} STRUCTURE  {} DIMENSION  {} CONNECTION\n",
+        GLYPH_SIGNAL, GLYPH_PATH, GLYPH_STRUCTURE, GLYPH_DIMENSION, GLYPH_CONNECTION
     ));
-    out.push_str(&format!(
-        "{}  {} SIGNAL  {} PATH  {} STRUCTURE  {} DIMENSION  {} CONNECTION{}\n",
-        ANSI_DIM,
-        GLYPH_SIGNAL,
-        GLYPH_PATH,
-        GLYPH_STRUCTURE,
-        GLYPH_DIMENSION,
-        GLYPH_CONNECTION,
-        ANSI_RESET
-    ));
-    out.push_str(&gradient_bottom_border(width));
-    out.push('\n');
     out.push('\n');
 
     // Group by category
     let categories = [
-        ("Foundation", GLYPH_SIGNAL, ANSI_CYAN),
-        ("Perspective", GLYPH_PATH, ANSI_MAGENTA),
-        ("Lock", GLYPH_CONNECTION, ANSI_BLUE),
-        ("Temporal", GLYPH_DIMENSION, ANSI_GOLD),
-        ("Trail", GLYPH_PATH, ANSI_GOLD),
-        ("Superpowers", GLYPH_STRUCTURE, ANSI_GOLD),
-        ("Extended", GLYPH_DIMENSION, ANSI_MAGENTA),
-        ("Surgical", GLYPH_CONNECTION, ANSI_GREEN),
-        ("Panoramic", GLYPH_STRUCTURE, ANSI_RED),
-        ("Efficiency", GLYPH_DIMENSION, ANSI_GREEN),
-        ("Report", GLYPH_DIMENSION, ANSI_BLUE),
-        ("Help", GLYPH_DIMENSION, ANSI_CYAN),
+        ("Foundation", GLYPH_SIGNAL),
+        ("Perspective", GLYPH_PATH),
+        ("Lock", GLYPH_CONNECTION),
+        ("Temporal", GLYPH_DIMENSION),
+        ("Trail", GLYPH_PATH),
+        ("Superpowers", GLYPH_STRUCTURE),
+        ("Extended", GLYPH_DIMENSION),
+        ("Surgical", GLYPH_CONNECTION),
+        ("Panoramic", GLYPH_STRUCTURE),
+        ("Efficiency", GLYPH_DIMENSION),
+        ("Report", GLYPH_DIMENSION),
+        ("Help", GLYPH_DIMENSION),
     ];
 
-    for (cat_name, glyph, color) in &categories {
+    for (cat_name, glyph) in &categories {
         let cat_tools: Vec<&ToolDoc> = docs.iter().filter(|d| d.category == *cat_name).collect();
         if cat_tools.is_empty() {
             continue;
         }
 
-        out.push_str(&format!(
-            "{}{} {} ({}):{}\n",
-            color,
-            glyph,
-            cat_name,
-            cat_tools.len(),
-            ANSI_RESET
-        ));
+        out.push_str(&format!("{} {} ({}):\n", glyph, cat_name, cat_tools.len()));
         for doc in cat_tools {
             let short_name = doc.name.strip_prefix("").unwrap_or(doc.name);
-            out.push_str(&format!(
-                "  {}{}  {}{}{}\n",
-                ANSI_BOLD, short_name, ANSI_DIM, doc.one_liner, ANSI_RESET
-            ));
+            out.push_str(&format!("  {}  {}\n", short_name, doc.one_liner));
         }
         out.push('\n');
     }
 
-    out.push_str(&format!(
-        "{}use help(tool_name=\"activate\") for detailed help on any tool{}\n",
-        ANSI_DIM, ANSI_RESET
-    ));
-    out.push_str(&format!(
-        "{}decision guide: search=text, glob=filenames, seek=intent, trace=errors, validate_plan=edit risk, surgical_context_v2=connected edit prep{}\n",
-        ANSI_DIM, ANSI_RESET
-    ));
-    out.push_str(&format!(
-        "{}common errors should be treated as reroute hints: read the hint, example, and next-step guidance before retrying.{}\n",
-        ANSI_DIM, ANSI_RESET
-    ));
-    out.push_str(&format!("{}tip: if you're unsure which tool to use, describe what you need — help can suggest the right one.{}\n", ANSI_DIM, ANSI_RESET));
+    out.push_str("use help(tool_name=\"activate\") for detailed help on any tool\n");
+    out.push_str("decision guide: search=text, glob=filenames, seek=intent, trace=errors, validate_plan=edit risk, surgical_context_v2=connected edit prep\n");
+    out.push_str("common errors should be treated as reroute hints: read the hint, example, and next-step guidance before retrying.\n");
+    out.push_str("tip: if you're unsure which tool to use, describe what you need — help can suggest the right one.\n");
     if show_temponizer {
         out.push('\n');
-        out.push_str(&format!(
-            "{}⚡ TEMPONIZER:{} You suffer from TIB — you estimate in human-time but execute 15-60× faster.\n",
-            ANSI_GOLD, ANSI_RESET
-        ));
-        out.push_str(&format!(
-            "{}  corrected = estimate ÷ 20 (floor 1 min). Fill recovered time with MORE deliverables, not padding.{}\n",
-            ANSI_DIM, ANSI_RESET
-        ));
-        out.push_str(&format!(
-            "{}  Full spec: .m1nd/boot/temponizer.json{}\n",
-            ANSI_DIM, ANSI_RESET
-        ));
+        out.push_str("⚡ TEMPONIZER: You suffer from TIB — you estimate in human-time but execute 15-60× faster.\n");
+        out.push_str("  corrected = estimate ÷ 20 (floor 1 min). Fill recovered time with MORE deliverables, not padding.\n");
+        out.push_str("  Full spec: .m1nd/boot/temponizer.json\n");
     }
     out
 }
 
 /// Format detailed help for a single tool.
 pub fn format_tool_help(doc: &ToolDoc) -> String {
-    let width = 60;
     let mut out = String::new();
-
-    out.push_str(&gradient_top_border(width));
-    out.push('\n');
 
     let short_name = doc.name.strip_prefix("").unwrap_or(doc.name);
     out.push_str(&format!(
-        "{}{} {}  {}  m1nd.{}{}\n",
-        ANSI_CYAN,
+        "{} {}    m1nd.{}\n",
         doc.glyph,
         doc.category.to_uppercase(),
-        ANSI_BOLD,
-        short_name,
-        ANSI_RESET
+        short_name
     ));
-    out.push_str(&format!("{}{}{}\n\n", ANSI_DIM, doc.one_liner, ANSI_RESET));
+    out.push_str(&format!("{}\n\n", doc.one_liner));
 
     // Params section
-    out.push_str(&format!("{}\u{2338} PARAMS{}\n", ANSI_GOLD, ANSI_RESET)); // ⌸
+    out.push_str("\u{2338} PARAMS\n"); // ⌸
     for (i, (name, desc, required)) in doc.params.iter().enumerate() {
         let connector = if i == doc.params.len() - 1 {
             "\u{2514}\u{2500}"
@@ -2370,184 +2272,119 @@ pub fn format_tool_help(doc: &ToolDoc) -> String {
             "\u{251C}\u{2500}"
         };
         let req_mark = if *required {
-            format!("{}*{}", ANSI_RED, ANSI_RESET)
+            "*".to_string()
         } else {
             String::new()
         };
-        out.push_str(&format!(
-            "  {} {}{}{} {}{}{}\n",
-            connector, ANSI_BOLD, name, req_mark, ANSI_DIM, desc, ANSI_RESET
-        ));
+        out.push_str(&format!("  {} {}{} {}\n", connector, name, req_mark, desc));
     }
     out.push('\n');
 
     // Returns section
-    out.push_str(&format!("{}\u{234D} RETURNS{}\n", ANSI_GREEN, ANSI_RESET)); // ⍍
-    out.push_str(&format!("  {}{}{}\n\n", ANSI_DIM, doc.returns, ANSI_RESET));
+    out.push_str("\u{234D} RETURNS\n"); // ⍍
+    out.push_str(&format!("  {}\n\n", doc.returns));
 
     // When to use section
-    out.push_str(&format!(
-        "{}\u{25B7} WHEN TO USE{}\n",
-        ANSI_CYAN, ANSI_RESET
-    ));
+    out.push_str("\u{25B7} WHEN TO USE\n");
     for line in when_to_use(doc.name) {
-        out.push_str(&format!("  {}- {}{}\n", ANSI_DIM, line, ANSI_RESET));
+        out.push_str(&format!("  - {}\n", line));
     }
     out.push('\n');
 
     // Avoid when section
-    out.push_str(&format!("{}\u{26A0} AVOID WHEN{}\n", ANSI_RED, ANSI_RESET));
+    out.push_str("\u{26A0} AVOID WHEN\n");
     for line in avoid_when(doc.name) {
-        out.push_str(&format!("  {}- {}{}\n", ANSI_DIM, line, ANSI_RESET));
+        out.push_str(&format!("  - {}\n", line));
     }
     out.push('\n');
 
     // Example section
-    out.push_str(&format!("{}\u{233C} EXAMPLE{}\n", ANSI_MAGENTA, ANSI_RESET)); // ⌼
-    out.push_str(&format!("  {}{}{}\n\n", ANSI_DIM, doc.example, ANSI_RESET));
+    out.push_str("\u{233C} EXAMPLE\n"); // ⌼
+    out.push_str(&format!("  {}\n\n", doc.example));
 
     let notes = agent_notes(doc.name);
     if !notes.is_empty() {
-        out.push_str(&format!(
-            "{}\u{2699} AGENT NOTES{}\n",
-            ANSI_GOLD, ANSI_RESET
-        ));
+        out.push_str("\u{2699} AGENT NOTES\n");
         for line in notes {
-            out.push_str(&format!("  {}- {}{}\n", ANSI_DIM, line, ANSI_RESET));
+            out.push_str(&format!("  - {}\n", line));
         }
         out.push('\n');
     }
 
     let recovery = error_recovery_notes(doc.name);
     if !recovery.is_empty() {
-        out.push_str(&format!(
-            "{}\u{21BB} ERROR RECOVERY{}\n",
-            ANSI_RED, ANSI_RESET
-        ));
+        out.push_str("\u{21BB} ERROR RECOVERY\n");
         for line in recovery {
-            out.push_str(&format!("  {}- {}{}\n", ANSI_DIM, line, ANSI_RESET));
+            out.push_str(&format!("  - {}\n", line));
         }
         out.push('\n');
     }
 
     let bench = benchmark_notes(doc.name);
     if !bench.is_empty() {
-        out.push_str(&format!(
-            "{}\u{25C8} BENCHMARK TRUTH{}\n",
-            ANSI_MAGENTA, ANSI_RESET
-        ));
+        out.push_str("\u{25C8} BENCHMARK TRUTH\n");
         for line in bench {
-            out.push_str(&format!("  {}- {}{}\n", ANSI_DIM, line, ANSI_RESET));
+            out.push_str(&format!("  - {}\n", line));
         }
         out.push('\n');
     }
 
     let flows = workflow_patterns(doc.name);
     if !flows.is_empty() {
-        out.push_str(&format!("{}\u{21AA} WORKFLOWS{}\n", ANSI_BLUE, ANSI_RESET));
+        out.push_str("\u{21AA} WORKFLOWS\n");
         for line in flows {
-            out.push_str(&format!("  {}- {}{}\n", ANSI_DIM, line, ANSI_RESET));
+            out.push_str(&format!("  - {}\n", line));
         }
         out.push('\n');
     }
 
     let handoffs = state_handoffs(doc.name);
     if !handoffs.is_empty() {
-        out.push_str(&format!(
-            "{}\u{21C4} STATE HANDOFF{}\n",
-            ANSI_GREEN, ANSI_RESET
-        ));
+        out.push_str("\u{21C4} STATE HANDOFF\n");
         for line in handoffs {
-            out.push_str(&format!("  {}- {}{}\n", ANSI_DIM, line, ANSI_RESET));
+            out.push_str(&format!("  - {}\n", line));
         }
         out.push('\n');
     }
 
     // Next section
-    out.push_str(&format!("{}\u{2350} NEXT{}\n", ANSI_CYAN, ANSI_RESET)); // ⍐
+    out.push_str("\u{2350} NEXT\n"); // ⍐
     for next in doc.next {
-        out.push_str(&format!(
-            "  {} {}{}{}\n",
-            ANSI_CYAN, ANSI_BOLD, next, ANSI_RESET
-        ));
+        out.push_str(&format!("   {}\n", next));
     }
     out.push('\n');
 
-    out.push_str(&gradient_bottom_border(width));
-    out.push('\n');
     out
 }
 
 /// Format the "about" help -- m1nd's philosophy and identity.
 pub fn format_about() -> String {
-    let width = 72;
     let mut out = String::new();
 
-    out.push_str(&gradient_top_border(width));
-    out.push('\n');
-    out.push_str(&format!("{}{}  m1nd{}\n", ANSI_BOLD, ANSI_CYAN, ANSI_RESET));
-    out.push_str(&format!(
-        "{}  operational intelligence for coding agents{}\n\n",
-        ANSI_DIM, ANSI_RESET
-    ));
+    out.push_str("  m1nd\n");
+    out.push_str("  operational intelligence for coding agents\n\n");
 
-    out.push_str(&format!(
-        "{}  A local intelligence layer for coding agents.{}\n",
-        ANSI_DIM, ANSI_RESET
-    ));
-    out.push_str(&format!(
-        "{}  It turns code, docs, history, runtime signals, and graph-native knowledge{}\n",
-        ANSI_DIM, ANSI_RESET
-    ));
-    out.push_str(&format!(
-        "{}  into a local system an agent can reason over before, during, and after change.{}\n\n",
-        ANSI_DIM, ANSI_RESET
-    ));
+    out.push_str("  A local intelligence layer for coding agents.\n");
+    out.push_str("  It turns code, docs, history, runtime signals, and graph-native knowledge\n");
+    out.push_str(
+        "  into a local system an agent can reason over before, during, and after change.\n\n",
+    );
 
-    out.push_str(&format!(
-        "{}  WHAT THAT INTELLIGENCE COVERS{}\n",
-        ANSI_BOLD, ANSI_RESET
-    ));
-    out.push_str(&format!(
-        "  {}- structure:{} retrieval, neighborhoods, routes, type flow, layers\n",
-        ANSI_DIM, ANSI_RESET
-    ));
-    out.push_str(&format!(
-        "  {}- change:{} blast radius, co-change, validation, edit prep, execution\n",
-        ANSI_DIM, ANSI_RESET
-    ));
-    out.push_str(&format!(
-        "  {}- docs:{} universal ingest, L1GHT, bindings, drift, provider health\n",
-        ANSI_DIM, ANSI_RESET
-    ));
-    out.push_str(&format!(
-        "  {}- operations:{} audits, verification, daemons, alerts, overlays, reports\n",
-        ANSI_DIM, ANSI_RESET
-    ));
-    out.push_str(&format!(
-        "  {}- continuity:{} perspectives, trails, coverage, boot memory, handoffs\n\n",
-        ANSI_DIM, ANSI_RESET
-    ));
+    out.push_str("  WHAT THAT INTELLIGENCE COVERS\n");
+    out.push_str("  - structure: retrieval, neighborhoods, routes, type flow, layers\n");
+    out.push_str("  - change: blast radius, co-change, validation, edit prep, execution\n");
+    out.push_str("  - docs: universal ingest, L1GHT, bindings, drift, provider health\n");
+    out.push_str("  - operations: audits, verification, daemons, alerts, overlays, reports\n");
+    out.push_str("  - continuity: perspectives, trails, coverage, boot memory, handoffs\n\n");
 
-    out.push_str(&format!("{}  RUNTIME{}\n", ANSI_BOLD, ANSI_RESET));
-    out.push_str(&format!("  {}- local execution{}\n", ANSI_DIM, ANSI_RESET));
-    out.push_str(&format!("  {}- MCP over stdio{}\n", ANSI_DIM, ANSI_RESET));
-    out.push_str(&format!(
-        "  {}- optional HTTP/UI surface in the default build{}\n\n",
-        ANSI_DIM, ANSI_RESET
-    ));
+    out.push_str("  RUNTIME\n");
+    out.push_str("  - local execution\n");
+    out.push_str("  - MCP over stdio\n");
+    out.push_str("  - optional HTTP/UI surface in the default build\n\n");
 
-    out.push_str(&format!(
-        "{}  call help(tool_name=\"activate\") for exact tool doctrine{}\n",
-        ANSI_DIM, ANSI_RESET
-    ));
-    out.push_str(&format!(
-        "{}  call help(stage=\"plan\", intent=\"validate a risky change\") for routing{}\n",
-        ANSI_DIM, ANSI_RESET
-    ));
+    out.push_str("  call help(tool_name=\"activate\") for exact tool doctrine\n");
+    out.push_str("  call help(stage=\"plan\", intent=\"validate a risky change\") for routing\n");
 
-    out.push_str(&gradient_bottom_border(width));
-    out.push('\n');
     out
 }
 

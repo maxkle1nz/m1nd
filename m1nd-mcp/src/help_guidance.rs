@@ -1,7 +1,5 @@
 use crate::personality::{
-    self, gradient_bottom_border, gradient_top_border, ANSI_BOLD, ANSI_CYAN, ANSI_DIM, ANSI_GOLD,
-    ANSI_GREEN, ANSI_MAGENTA, ANSI_RED, ANSI_RESET, GLYPH_CONNECTION, GLYPH_DIMENSION, GLYPH_PATH,
-    GLYPH_SIGNAL, GLYPH_STRUCTURE,
+    self, GLYPH_CONNECTION, GLYPH_DIMENSION, GLYPH_PATH, GLYPH_SIGNAL, GLYPH_STRUCTURE,
 };
 use crate::protocol::layers::{
     HelpGuidance, HelpInput, HelpMinimalCall, HelpMode, HelpRejectedAlternative, HelpRender,
@@ -887,9 +885,14 @@ fn tool_guidance(entry: &HelpCatalogEntry, input: &HelpInput) -> HelpGuidance {
             .next
             .iter()
             .take(3)
-            .map(|tool| HelpSequenceStep {
+            .enumerate()
+            .map(|(index, tool)| HelpSequenceStep {
                 tool: tool.clone(),
-                reason: format!("Typical downstream follow-up after `{}`.", entry.name),
+                reason: if index == 0 {
+                    format!("Typical downstream follow-up after `{}`.", entry.name)
+                } else {
+                    format!("Another follow-up after `{}`.", entry.name)
+                },
             })
             .collect(),
         required_inputs,
@@ -1996,59 +1999,35 @@ fn overview_cards(input: &HelpInput) -> Vec<OverviewCard> {
 }
 
 fn render_tool(entry: &HelpCatalogEntry, guidance: &HelpGuidance, compact: bool) -> String {
-    let width = 72;
     let mut out = String::new();
 
-    out.push_str(&gradient_top_border(width));
-    out.push('\n');
     out.push_str(&format!(
-        "{}{} {}  {}{}{}\n",
-        ANSI_CYAN,
+        "{} {}  {}\n",
         entry.glyph,
         entry.category.to_uppercase(),
-        ANSI_BOLD,
-        entry.name,
-        ANSI_RESET
+        entry.name
     ));
-    out.push_str(&format!(
-        "{}canonical: {}{}",
-        ANSI_DIM, entry.name, ANSI_RESET
-    ));
+    out.push_str(&format!("canonical: {}", entry.name));
     if !entry.aliases.is_empty() {
-        out.push_str(&format!(
-            "{}  aliases: {}{}{}\n",
-            ANSI_DIM,
-            ANSI_BOLD,
-            entry.aliases.join(", "),
-            ANSI_RESET
-        ));
+        out.push_str(&format!("  aliases: {}\n", entry.aliases.join(", ")));
     } else {
         out.push('\n');
     }
     out.push('\n');
 
     render_section_title(&mut out, "USE THIS NOW");
-    out.push_str(&format!(
-        "  {}{}{}{}\n\n",
-        ANSI_CYAN, ANSI_BOLD, entry.name, ANSI_RESET
-    ));
+    out.push_str(&format!("  {}\n\n", entry.name));
 
     render_section_title(&mut out, "WHY");
-    out.push_str(&format!(
-        "  {}- {}{}\n",
-        ANSI_DIM, entry.one_liner, ANSI_RESET
-    ));
+    out.push_str(&format!("  - {}\n", entry.one_liner));
     if !entry.returns.is_empty() {
-        out.push_str(&format!(
-            "  {}- Returns: {}{}\n",
-            ANSI_DIM, entry.returns, ANSI_RESET
-        ));
+        out.push_str(&format!("  - Returns: {}\n", entry.returns));
     }
     for line in personality::when_to_use(&entry.name)
         .iter()
         .take(if compact { 1 } else { 2 })
     {
-        out.push_str(&format!("  {}- {}{}\n", ANSI_DIM, line, ANSI_RESET));
+        out.push_str(&format!("  - {}\n", line));
     }
     out.push('\n');
 
@@ -2056,16 +2035,10 @@ fn render_tool(entry: &HelpCatalogEntry, guidance: &HelpGuidance, compact: bool)
     let required: Vec<&HelpParamSpec> =
         entry.params.iter().filter(|param| param.required).collect();
     if required.is_empty() {
-        out.push_str(&format!(
-            "  {}- no required inputs beyond the call itself{}\n",
-            ANSI_DIM, ANSI_RESET
-        ));
+        out.push_str("  - no required inputs beyond the call itself\n");
     } else {
         for param in required {
-            out.push_str(&format!(
-                "  {}- {}{}{} — {}{}\n",
-                ANSI_DIM, ANSI_BOLD, param.name, ANSI_RESET, param.description, ANSI_RESET
-            ));
+            out.push_str(&format!("  - {} — {}\n", param.name, param.description));
         }
     }
     let optional: Vec<String> = entry
@@ -2077,14 +2050,12 @@ fn render_tool(entry: &HelpCatalogEntry, guidance: &HelpGuidance, compact: bool)
     if !optional.is_empty() {
         let max = if compact { 4 } else { 8 };
         out.push_str(&format!(
-            "  {}- optional knobs: {}{}\n",
-            ANSI_DIM,
+            "  - optional knobs: {}\n",
             optional
                 .into_iter()
                 .take(max)
                 .collect::<Vec<_>>()
-                .join(", "),
-            ANSI_RESET
+                .join(", ")
         ));
     }
     out.push('\n');
@@ -2092,10 +2063,8 @@ fn render_tool(entry: &HelpCatalogEntry, guidance: &HelpGuidance, compact: bool)
     render_section_title(&mut out, "MINIMAL CALL");
     if let Some(call) = guidance.minimal_calls.first() {
         out.push_str(&format!(
-            "  {}{}{}({})\n\n",
-            ANSI_MAGENTA,
+            "  {}({})\n\n",
             call.tool,
-            ANSI_RESET,
             render_inline_json(&call.arguments)
         ));
     }
@@ -2103,13 +2072,12 @@ fn render_tool(entry: &HelpCatalogEntry, guidance: &HelpGuidance, compact: bool)
     render_section_title(&mut out, "DO NOT USE IF");
     let avoid = personality::avoid_when(&entry.name);
     if avoid.is_empty() && guidance.rejected_alternatives.is_empty() {
-        out.push_str(&format!(
-            "  {}- the retrieval or reasoning shape you need is fundamentally different{}\n\n",
-            ANSI_DIM, ANSI_RESET
-        ));
+        out.push_str(
+            "  - the retrieval or reasoning shape you need is fundamentally different\n\n",
+        );
     } else {
         for line in avoid.iter().take(if compact { 1 } else { 2 }) {
-            out.push_str(&format!("  {}- {}{}\n", ANSI_DIM, line, ANSI_RESET));
+            out.push_str(&format!("  - {}\n", line));
         }
         for alternative in guidance
             .rejected_alternatives
@@ -2117,8 +2085,8 @@ fn render_tool(entry: &HelpCatalogEntry, guidance: &HelpGuidance, compact: bool)
             .take(if compact { 1 } else { 2 })
         {
             out.push_str(&format!(
-                "  {}- do not substitute with `{}`: {}{}\n",
-                ANSI_DIM, alternative.tool, alternative.reason, ANSI_RESET
+                "  - do not substitute with `{}`: {}\n",
+                alternative.tool, alternative.reason
             ));
         }
         out.push('\n');
@@ -2130,7 +2098,7 @@ fn render_tool(entry: &HelpCatalogEntry, guidance: &HelpGuidance, compact: bool)
         .iter()
         .take(if compact { 2 } else { 4 })
     {
-        out.push_str(&format!("  {}- {}{}\n", ANSI_DIM, step, ANSI_RESET));
+        out.push_str(&format!("  - {}\n", step));
     }
     out.push('\n');
 
@@ -2141,13 +2109,8 @@ fn render_tool(entry: &HelpCatalogEntry, guidance: &HelpGuidance, compact: bool)
         entry.next.clone()
     };
     for tool in next.iter().take(if compact { 2 } else { 4 }) {
-        out.push_str(&format!(
-            "  {}- {}{}{}{}\n",
-            ANSI_CYAN, ANSI_BOLD, tool, ANSI_RESET, ANSI_RESET
-        ));
+        out.push_str(&format!("  - {}\n", tool));
     }
-    out.push('\n');
-    out.push_str(&gradient_bottom_border(width));
     out.push('\n');
     out
 }
@@ -2158,82 +2121,42 @@ fn render_overview(
     compact: bool,
     show_temponizer: bool,
 ) -> String {
-    let width = 72;
     let mut out = String::new();
-    out.push_str(&gradient_top_border(width));
-    out.push('\n');
+    out.push_str("  m1nd help\n");
     out.push_str(&format!(
-        "{}{}  m1nd help{}\n",
-        ANSI_BOLD, ANSI_CYAN, ANSI_RESET
+        "  {} live tools. route by stage, intent, or failure.\n",
+        total_tools
     ));
-    out.push_str(&format!(
-        "{}  {} live tools. route by stage, intent, or failure.{}\n",
-        ANSI_DIM, total_tools, ANSI_RESET
-    ));
-    out.push_str(&format!(
-        "{}  structure · change · docs · operations · continuity{}\n\n",
-        ANSI_DIM, ANSI_RESET
-    ));
+    out.push_str("  structure · change · docs · operations · continuity\n\n");
 
     render_section_title(&mut out, "30-SECOND MAP");
     for card in cards.iter().take(if compact { 4 } else { cards.len() }) {
         out.push_str(&format!(
-            "  {}- {}{}{} -> {}{}{} — {}{}\n",
-            ANSI_DIM,
-            ANSI_BOLD,
-            card.title,
-            ANSI_RESET,
-            ANSI_CYAN,
-            card.tool,
-            ANSI_RESET,
-            card.why,
-            ANSI_RESET
+            "  - {} -> {} — {}\n",
+            card.title, card.tool, card.why
         ));
     }
     out.push('\n');
 
     render_section_title(&mut out, "HOW TO ASK");
-    out.push_str(&format!(
-        "  {}- help(tool_name=\"activate\") for exact tool doctrine{}\n",
-        ANSI_DIM, ANSI_RESET
-    ));
-    out.push_str(&format!(
-        "  {}- help(stage=\"plan\", intent=\"validate a risky change\") for a route{}\n",
-        ANSI_DIM, ANSI_RESET
-    ));
-    out.push_str(&format!(
-        "  {}- help(error_text=\"...\") for failure recovery{}\n",
-        ANSI_DIM, ANSI_RESET
-    ));
-    out.push_str(&format!(
-        "  {}- help(mode=\"workflow\", stage=\"edit\") for a full sequence{}\n",
-        ANSI_DIM, ANSI_RESET
-    ));
+    out.push_str("  - help(tool_name=\"activate\") for exact tool doctrine\n");
+    out.push_str("  - help(stage=\"plan\", intent=\"validate a risky change\") for a route\n");
+    out.push_str("  - help(error_text=\"...\") for failure recovery\n");
+    out.push_str("  - help(mode=\"workflow\", stage=\"edit\") for a full sequence\n");
 
     if show_temponizer {
         out.push('\n');
         render_section_title(&mut out, "TEMPONIZER");
-        out.push_str(&format!(
-            "  {}- you estimate in human-time but execute much faster; fill the recovered time with more deliverables, not padding.{}\n",
-            ANSI_DIM, ANSI_RESET
-        ));
+        out.push_str("  - you estimate in human-time but execute much faster; fill the recovered time with more deliverables, not padding.\n");
     }
 
-    out.push('\n');
-    out.push_str(&gradient_bottom_border(width));
     out.push('\n');
     out
 }
 
 fn render_guidance(title: &str, guidance: &HelpGuidance, compact: bool) -> String {
-    let width = 72;
     let mut out = String::new();
-    out.push_str(&gradient_top_border(width));
-    out.push('\n');
-    out.push_str(&format!(
-        "{}{}  help {}{}\n\n",
-        ANSI_BOLD, ANSI_CYAN, title, ANSI_RESET
-    ));
+    out.push_str(&format!("  help {}\n\n", title));
 
     render_section_title(&mut out, "USE THIS NOW");
     for tool in guidance
@@ -2241,39 +2164,23 @@ fn render_guidance(title: &str, guidance: &HelpGuidance, compact: bool) -> Strin
         .iter()
         .take(if compact { 2 } else { 4 })
     {
-        out.push_str(&format!(
-            "  {}- {}{}{}{}\n",
-            ANSI_CYAN, ANSI_BOLD, tool, ANSI_RESET, ANSI_RESET
-        ));
+        out.push_str(&format!("  - {}\n", tool));
     }
     out.push('\n');
 
     render_section_title(&mut out, "WHY");
-    out.push_str(&format!(
-        "  {}- {}{}\n\n",
-        ANSI_DIM, guidance.why, ANSI_RESET
-    ));
+    out.push_str(&format!("  - {}\n\n", guidance.why));
 
     render_section_title(&mut out, "REQUIRED INPUT");
     if guidance.required_inputs.is_empty() {
-        out.push_str(&format!(
-            "  {}- no extra input beyond the current state{}\n",
-            ANSI_DIM, ANSI_RESET
-        ));
+        out.push_str("  - no extra input beyond the current state\n");
     } else {
-        out.push_str(&format!(
-            "  {}- {}{}\n",
-            ANSI_DIM,
-            guidance.required_inputs.join(", "),
-            ANSI_RESET
-        ));
+        out.push_str(&format!("  - {}\n", guidance.required_inputs.join(", ")));
     }
     if !guidance.missing_context.is_empty() {
         out.push_str(&format!(
-            "  {}- still missing: {}{}\n",
-            ANSI_DIM,
-            guidance.missing_context.join(", "),
-            ANSI_RESET
+            "  - still missing: {}\n",
+            guidance.missing_context.join(", ")
         ));
     }
     out.push('\n');
@@ -2285,10 +2192,8 @@ fn render_guidance(title: &str, guidance: &HelpGuidance, compact: bool) -> Strin
         .take(if compact { 1 } else { 3 })
     {
         out.push_str(&format!(
-            "  {}{}{}({})\n",
-            ANSI_MAGENTA,
+            "  {}({})\n",
             call.tool,
-            ANSI_RESET,
             render_inline_json(&call.arguments)
         ));
     }
@@ -2296,10 +2201,9 @@ fn render_guidance(title: &str, guidance: &HelpGuidance, compact: bool) -> Strin
 
     render_section_title(&mut out, "DO NOT USE IF");
     if guidance.rejected_alternatives.is_empty() {
-        out.push_str(&format!(
-            "  {}- the uncertainty shape has changed and now needs a different first tool{}\n",
-            ANSI_DIM, ANSI_RESET
-        ));
+        out.push_str(
+            "  - the uncertainty shape has changed and now needs a different first tool\n",
+        );
     } else {
         for alternative in guidance
             .rejected_alternatives
@@ -2307,8 +2211,8 @@ fn render_guidance(title: &str, guidance: &HelpGuidance, compact: bool) -> Strin
             .take(if compact { 1 } else { 3 })
         {
             out.push_str(&format!(
-                "  {}- `{}`: {}{}\n",
-                ANSI_DIM, alternative.tool, alternative.reason, ANSI_RESET
+                "  - `{}`: {}\n",
+                alternative.tool, alternative.reason
             ));
         }
     }
@@ -2320,7 +2224,7 @@ fn render_guidance(title: &str, guidance: &HelpGuidance, compact: bool) -> Strin
         .iter()
         .take(if compact { 2 } else { 4 })
     {
-        out.push_str(&format!("  {}- {}{}\n", ANSI_DIM, step, ANSI_RESET));
+        out.push_str(&format!("  - {}\n", step));
     }
     out.push('\n');
 
@@ -2330,56 +2234,32 @@ fn render_guidance(title: &str, guidance: &HelpGuidance, compact: bool) -> Strin
         .iter()
         .take(if compact { 2 } else { 4 })
     {
-        out.push_str(&format!(
-            "  {}- {}{}{} — {}{}\n",
-            ANSI_CYAN, ANSI_BOLD, step.tool, ANSI_RESET, step.reason, ANSI_RESET
-        ));
+        out.push_str(&format!("  - {} — {}\n", step.tool, step.reason));
     }
     if let Some(next_step) = &guidance.next_step {
-        out.push_str(&format!("  {}- {}{}\n", ANSI_DIM, next_step, ANSI_RESET));
+        out.push_str(&format!("  - {}\n", next_step));
     }
-    out.push('\n');
-    out.push_str(&gradient_bottom_border(width));
     out.push('\n');
     out
 }
 
 fn render_unknown_tool(query: &str, suggestions: &[String]) -> String {
-    let width = 72;
     let mut out = String::new();
-    out.push_str(&gradient_top_border(width));
-    out.push('\n');
-    out.push_str(&format!(
-        "{}{}  help recovery{}\n\n",
-        ANSI_BOLD, ANSI_RED, ANSI_RESET
-    ));
-    out.push_str(&format!(
-        "{}unknown tool:{} {}{}{}\n",
-        ANSI_RED, ANSI_RESET, ANSI_BOLD, query, ANSI_RESET
-    ));
+    out.push_str("  help recovery\n\n");
+    out.push_str(&format!("unknown tool: {}\n", query));
     if suggestions.is_empty() {
-        out.push_str(&format!(
-            "{}no similar live tool names found. Use stage or intent instead of guessing.{}\n",
-            ANSI_DIM, ANSI_RESET
-        ));
+        out.push_str(
+            "no similar live tool names found. Use stage or intent instead of guessing.\n",
+        );
     } else {
-        out.push_str(&format!(
-            "{}did you mean:{} {}{}{}\n",
-            ANSI_DIM,
-            ANSI_RESET,
-            ANSI_BOLD,
-            suggestions.join(", "),
-            ANSI_RESET
-        ));
+        out.push_str(&format!("did you mean: {}\n", suggestions.join(", ")));
     }
-    out.push('\n');
-    out.push_str(&gradient_bottom_border(width));
     out.push('\n');
     out
 }
 
 fn render_section_title(out: &mut String, title: &str) {
-    out.push_str(&format!("{}{}{}\n", ANSI_GOLD, title, ANSI_RESET));
+    out.push_str(&format!("{}\n", title));
 }
 
 fn render_inline_json(value: &Value) -> String {

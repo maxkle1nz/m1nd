@@ -88,11 +88,6 @@ fn build_help_output_known(tool: &str) -> HelpOutput {
         suggestions: vec![],
         proof_state: "triaging".into(),
         next_suggested_tool: Some("help".into()),
-        next_suggested_target: Some(tool.into()),
-        next_step_hint: Some("Use this help page to choose the next tool in the workflow.".into()),
-        confidence: Some(0.71),
-        why_this_next_step: Some("The help page already encodes the downstream workflow.".into()),
-        what_is_missing: Some("The downstream tool still needs to run.".into()),
         guidance: None,
     }
 }
@@ -454,13 +449,6 @@ fn test_help_unknown_tool() {
         suggestions: vec!["activate".into(), "scan".into()],
         proof_state: "blocked".into(),
         next_suggested_tool: Some("help".into()),
-        next_suggested_target: Some("activate".into()),
-        next_step_hint: Some("Retry with a suggested canonical tool name.".into()),
-        confidence: Some(0.24),
-        why_this_next_step: Some(
-            "The requested tool name did not resolve to a canonical tool.".into(),
-        ),
-        what_is_missing: Some("A valid canonical tool name is still missing.".into()),
         guidance: None,
     };
 
@@ -499,11 +487,6 @@ fn test_help_no_arg() {
         suggestions: vec![],
         proof_state: "triaging".into(),
         next_suggested_tool: Some("help".into()),
-        next_suggested_target: Some("seek".into()),
-        next_step_hint: Some("Open help for the tool you expect to use next.".into()),
-        confidence: Some(0.42),
-        why_this_next_step: Some("The help index is acting as a workflow router.".into()),
-        what_is_missing: Some("A concrete workflow choice is still missing.".into()),
         guidance: None,
     };
 
@@ -532,11 +515,6 @@ fn test_help_contains_next_suggestions() {
         suggestions: vec![],
         proof_state: "triaging".into(),
         next_suggested_tool: Some("impact".into()),
-        next_suggested_target: Some("activate".into()),
-        next_step_hint: Some("Use the NEXT section to continue the workflow.".into()),
-        confidence: Some(0.68),
-        why_this_next_step: Some("The help page already points toward the downstream workflow.".into()),
-        what_is_missing: Some("The downstream tool chain has not executed yet.".into()),
         guidance: None,
     };
 
