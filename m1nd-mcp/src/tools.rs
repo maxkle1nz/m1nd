@@ -1545,17 +1545,19 @@ fn finalize_ingest_with_inventory(
     // The commit the graph was built from. A whole-graph install (`replace`,
     // `refresh`) restates it: the walk's HEAD for a code scan of a directory,
     // unknown for anything else. A `merge` adds to the graph without
-    // re-walking the root, so it leaves the recorded commit as it was.
+    // re-walking the root, so it leaves the recorded commit as it was. The
+    // advisory sidecar is published only once this graph is durable.
     if mode != "merge" {
         state.indexed_vcs = match walked_head_oid.as_deref() {
             Some(oid) if adapter == "code" && input_path.is_dir() => {
-                Some(crate::graph_drift::IndexedVcsStateV1::new(
+                Some(crate::graph_drift::IndexedCommit::new(
                     oid,
                     &crate::project_brains::ProjectBrainRegistry::canonical_key(&input.path),
                 ))
             }
             _ => None,
         };
+        state.indexed_vcs_unpublished = true;
     }
 
     if let Err(e) = state.persist() {

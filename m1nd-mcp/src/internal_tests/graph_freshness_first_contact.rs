@@ -94,6 +94,7 @@ fn build_state(runtime: &Path) -> SessionState {
 /// A repository at C1, its graph built by the production code ingest.
 struct Fixture {
     _temp: tempfile::TempDir,
+    runtime: PathBuf,
     git_home: PathBuf,
     main: PathBuf,
     c1: String,
@@ -111,7 +112,8 @@ fn indexed_fixture() -> Fixture {
     git(&main, &git_home, &["commit", "-q", "-m", "c1"]);
     let c1 = git(&main, &git_home, &["rev-parse", "HEAD"]);
 
-    let mut state = build_state(&temp.path().join("runtime"));
+    let runtime = temp.path().join("runtime");
+    let mut state = build_state(&runtime);
     let ingested = dispatch_tool(
         &mut state,
         "ingest",
@@ -129,6 +131,7 @@ fn indexed_fixture() -> Fixture {
     );
     Fixture {
         _temp: temp,
+        runtime,
         git_home,
         main,
         c1,
@@ -240,5 +243,44 @@ fn the_drift_note_is_not_a_new_verb() {
     assert_eq!(
         m1nd_mcp::action_routes::MCP_TOOL_ROUTE_NAMES.len(),
         REGISTERED_TOOL_COUNT
+    );
+}
+
+/// Boot compatibility: the indexed commit is advisory and lives only in its
+/// sidecar, so the checkpoint candidate — and the strict rebuild digest an
+/// older binary recomputes at boot — is byte-for-byte the same whether the
+/// commit is known, unknown, published, or deleted.
+#[test]
+fn the_checkpoint_digest_is_blind_to_the_indexed_commit() {
+    if !git_available() {
+        eprintln!("skipping: git is not on PATH");
+        return;
+    }
+    let mut fixture = indexed_fixture();
+    let sidecar = fixture
+        .runtime
+        .join(crate::graph_drift::INDEXED_VCS_STATE_FILE);
+    assert!(
+        fixture.state.indexed_vcs.is_some(),
+        "the code ingest must record the commit it walked"
+    );
+    assert!(
+        sidecar.is_file(),
+        "the direct persist must publish the sidecar after the graph"
+    );
+    let known = fixture
+        .state
+        .authoritative_checkpoint_state_digest()
+        .expect("digest with the commit known");
+
+    fixture.state.indexed_vcs = None;
+    std::fs::remove_file(&sidecar).expect("delete the sidecar");
+    let unknown = fixture
+        .state
+        .authoritative_checkpoint_state_digest()
+        .expect("digest with the commit unknown");
+    assert_eq!(
+        known, unknown,
+        "the indexed commit leaked into the checkpoint digest"
     );
 }

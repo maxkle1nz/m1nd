@@ -418,7 +418,6 @@ struct StrictRecoveryState {
     document_cache: DocumentCacheState,
     document_artifacts: DocumentArtifactInventory,
     boot_kv_checkpoint_inventory: BootKvCheckpointInventoryV1,
-    indexed_vcs: Option<crate::graph_drift::IndexedVcsStateV1>,
 }
 
 // ---------------------------------------------------------------------------
@@ -620,10 +619,14 @@ pub struct SessionState {
     /// Persisted daemon/proactive alerts.
     pub daemon_alerts: Vec<DaemonAlert>,
     /// The commit the code graph was built from (`None`: unversioned root,
-    /// non-code graph, or a graph born before the commit was recorded). Written
-    /// only by a whole-graph code install; persisted as
-    /// [`crate::graph_drift::INDEXED_VCS_STATE_FILE`].
-    pub indexed_vcs: Option<crate::graph_drift::IndexedVcsStateV1>,
+    /// non-code graph, or unknown). Set only by a whole-graph code install.
+    /// ADVISORY state: it is published to the
+    /// [`crate::graph_drift::INDEXED_VCS_STATE_FILE`] sidecar only after the
+    /// graph itself is durable, is never part of a checkpoint or its digest,
+    /// and is read back leniently (anything doubtful is "unknown").
+    pub indexed_vcs: Option<crate::graph_drift::IndexedCommit>,
+    /// `indexed_vcs` changed since the sidecar was last published.
+    pub(crate) indexed_vcs_unpublished: bool,
     /// Process-only memo for the `graph_drift` note (never persisted).
     pub(crate) graph_drift_cache: crate::graph_drift::GraphDriftCache,
     /// Lightweight metadata index for files seen during ingest or verification.
@@ -2363,9 +2366,9 @@ impl SessionState {
                 let path = runtime_root.join("daemon_alerts.json");
                 Self::load_daemon_alerts(&path)
             },
-            indexed_vcs: crate::graph_drift::load_indexed_vcs_state(
-                &runtime_root.join(crate::graph_drift::INDEXED_VCS_STATE_FILE),
-            ),
+            // Read back below, once the graph and declared roots are in place.
+            indexed_vcs: None,
+            indexed_vcs_unpublished: false,
             graph_drift_cache: crate::graph_drift::GraphDriftCache::default(),
             file_inventory: HashMap::new(),
             coverage_sessions: HashMap::new(),
@@ -2388,7 +2391,22 @@ impl SessionState {
         // root survives in the ingest roots, repair it before the session serves a
         // single request (de-flips the corrupted bound owner on its next boot).
         state.heal_workspace_root();
+        state.reload_indexed_vcs();
         Ok(state)
+    }
+
+    /// Read the advisory indexed-commit sidecar back for the graph this session
+    /// now holds. Lenient by contract: a missing, unparsable, foreign-root, or
+    /// other-graph record leaves the commit unknown (no drift note) and never
+    /// fails a boot or a recovery.
+    fn reload_indexed_vcs(&mut self) {
+        let indexed = {
+            let graph = self.graph.read();
+            crate::graph_drift::load_indexed_commit(&self.runtime_root, &graph, &self.ingest_roots)
+        };
+        self.indexed_vcs = indexed;
+        self.indexed_vcs_unpublished = false;
+        self.graph_drift_cache = crate::graph_drift::GraphDriftCache::default();
     }
 
     fn read_required_recovery_file(path: &Path, logical_name: &str) -> M1ndResult<Vec<u8>> {
@@ -2520,20 +2538,6 @@ impl SessionState {
             "document_artifact_inventory",
             cancelled,
         )?;
-        // Optional by construction: a graph with no recorded commit has no
-        // file, and neither does any checkpoint written before the record
-        // existed. When present it is decoded strictly, like every owner here.
-        let indexed_vcs_path = self
-            .runtime_root
-            .join(crate::graph_drift::INDEXED_VCS_STATE_FILE);
-        let indexed_vcs_bytes = match std::fs::symlink_metadata(&indexed_vcs_path) {
-            Err(error) if error.kind() == std::io::ErrorKind::NotFound => None,
-            _ => Some(Self::read_required_recovery_file_with_cancel(
-                &indexed_vcs_path,
-                crate::graph_drift::INDEXED_VCS_STATE_LOGICAL_NAME,
-                cancelled,
-            )?),
-        };
 
         let mut graph =
             m1nd_core::snapshot::decode_graph_json_with_cancel(&graph_bytes, cancelled)?;
@@ -2706,19 +2710,6 @@ impl SessionState {
             &document_artifact_inventory_bytes,
         )?;
 
-        let indexed_vcs = match indexed_vcs_bytes {
-            Some(bytes) => {
-                let indexed = crate::graph_drift::IndexedVcsStateV1::decode(&bytes)?;
-                Self::verify_current_json_projection(
-                    crate::graph_drift::INDEXED_VCS_STATE_LOGICAL_NAME,
-                    &bytes,
-                    &indexed.encode()?,
-                )?;
-                Some(indexed)
-            }
-            None => None,
-        };
-
         // This function only reads and validates the exact fixed/dynamic Boot KV
         // ownership set. It deliberately does not invoke the migration writer.
         let boot_kv_checkpoint_inventory =
@@ -2752,7 +2743,6 @@ impl SessionState {
             document_cache,
             document_artifacts,
             boot_kv_checkpoint_inventory,
-            indexed_vcs,
         })
     }
 
@@ -2796,13 +2786,14 @@ impl SessionState {
         self.document_cache = recovered.document_cache;
         self.document_artifacts = recovered.document_artifacts;
         self.boot_kv_checkpoint_inventory = recovered.boot_kv_checkpoint_inventory;
-        self.indexed_vcs = recovered.indexed_vcs;
+        // Advisory and outside the checkpoint: re-read against the recovered
+        // graph, never trusted across the recovery fence.
+        self.reload_indexed_vcs();
 
         // These values are process-only/derived and are never authoritative
         // checkpoint owners. A stale graph index, one-call proof capability, or
         // abandoned persistence capability must not cross the recovery fence.
         self.seek_file_index = None;
-        self.graph_drift_cache = crate::graph_drift::GraphDriftCache::default();
         self.active_proof_permits.clear();
         self.persistence_stage.set(None);
         self.staged_binary_snapshot_effects.clear();
@@ -3191,26 +3182,6 @@ impl SessionState {
             )?;
         }
 
-        // PRESENT-only on purpose. An ABSENT row is hashed into the candidate
-        // digest too, so stating "absent" for every brain would change the
-        // digest of every checkpoint written before this record existed and
-        // fail its strict rebuild. A brain with no recorded commit carries no
-        // row; the restore and projection still remove a stale file, because
-        // the path is a managed optional sidecar.
-        if let Some(indexed) = &self.indexed_vcs {
-            push_checkpoint_candidate_file(
-                &mut files,
-                &self.runtime_root,
-                crate::graph_drift::INDEXED_VCS_STATE_LOGICAL_NAME,
-                &self
-                    .runtime_root
-                    .join(crate::graph_drift::INDEXED_VCS_STATE_FILE),
-                CHECKPOINT_SIDECAR_SCHEMA_ID,
-                CHECKPOINT_SIDECAR_SCHEMA_VERSION,
-                CheckpointCandidatePresence::Present(indexed.encode()?),
-            )?;
-        }
-
         crate::universal_docs::validate_inventory_against_cache(
             &self.runtime_root,
             &self.document_artifacts,
@@ -3424,6 +3395,10 @@ impl SessionState {
         }
         let applied = self.staged_binary_snapshot_effects.len();
         self.staged_binary_snapshot_effects.clear();
+        // CURRENT now holds the graph this turn installed, so the advisory
+        // indexed-commit sidecar may describe it. Best effort and outside the
+        // checkpoint: a failure here only leaves the commit unknown.
+        crate::graph_drift::publish_indexed_commit(self);
         Ok(applied)
     }
 
@@ -3512,12 +3487,9 @@ impl SessionState {
         self.persist_daemon_state()?;
         self.persist_daemon_alerts()?;
         self.auto_ingest.persist(&self.runtime_root)?;
-        crate::graph_drift::save_indexed_vcs_state(
-            &self
-                .runtime_root
-                .join(crate::graph_drift::INDEXED_VCS_STATE_FILE),
-            self.indexed_vcs.as_ref(),
-        )?;
+        // Advisory, and only now that the graph above is on disk.
+        drop(graph);
+        crate::graph_drift::publish_indexed_commit(self);
         // Universal cache index, inventory, and bodies are candidate-only.
         // Their sole physical publisher is the brain checkpoint projection
         // after CURRENT; a legacy/direct persist must never expose them early.
@@ -5038,7 +5010,6 @@ mod tests {
         "document_cache",
         "document_artifacts",
         "boot_memory",
-        "indexed_vcs",
     ];
 
     /// The fixed logical names a checkpoint candidate carries for a brain with no

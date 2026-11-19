@@ -405,3 +405,63 @@ fn a_new_process_on_a_graph_behind_head_declares_drift_until_the_named_refresh()
 
     second.shutdown();
 }
+
+/// The sidecar is advisory: deleting or corrupting it never blocks a boot (the
+/// strict checkpoint rebuild does not cover it) and never invents a note — an
+/// unknown indexed commit is silence, even when HEAD has moved.
+#[test]
+fn a_missing_or_corrupt_sidecar_never_blocks_boot_and_never_guesses() {
+    if !git_available() {
+        eprintln!("skipping: git is not on PATH");
+        return;
+    }
+    let temp = tempfile::tempdir().expect("tempdir");
+    let workspace = temp.path().join("repo-alpha");
+    let runtime = temp.path().join("private-runtime");
+    let git_home = temp.path().join("git-home");
+    std::fs::create_dir_all(&git_home).expect("git home");
+    write_crate(&workspace, 0);
+    git(&workspace, &git_home, &["init", "-q"]);
+    git(&workspace, &git_home, &["add", "-A"]);
+    git(&workspace, &git_home, &["commit", "-q", "-m", "c1"]);
+
+    let first = Owner::spawn(&workspace, &runtime);
+    first.shutdown();
+    let sidecar = runtime.join("indexed_vcs_state.json");
+    assert!(
+        sidecar.is_file(),
+        "a birth on a git repo must publish the sidecar"
+    );
+    write_crate(&workspace, 12);
+    git(&workspace, &git_home, &["commit", "-q", "-am", "c2"]);
+
+    for (case, damage) in [
+        ("deleted", None),
+        ("corrupt", Some(&b"{\"schema\": truncated"[..])),
+    ] {
+        match damage {
+            None => std::fs::remove_file(&sidecar).expect("delete sidecar"),
+            Some(bytes) => std::fs::write(&sidecar, bytes).expect("corrupt sidecar"),
+        }
+        let mut owner = Owner::spawn(&workspace, &runtime);
+        let north = owner.call(
+            "north",
+            serde_json::json!({ "agent_id": AGENT, "task": format!("where is {TARGET} defined") }),
+        );
+        let health = owner.call("health", serde_json::json!({ "agent_id": AGENT }));
+        assert!(
+            north.get("graph_drift").is_none(),
+            "{case} sidecar: north must not guess a drift: {north}"
+        );
+        assert!(
+            health.get("graph_drift").is_none(),
+            "{case} sidecar: health must not guess a drift: {health}"
+        );
+        owner.shutdown();
+        // The damaged record is never rewritten by a boot or a read.
+        if damage.is_none() {
+            assert!(!sidecar.exists(), "a read must not write the sidecar");
+            std::fs::write(&sidecar, b"placeholder").expect("recreate for the next case");
+        }
+    }
+}

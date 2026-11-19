@@ -1,19 +1,28 @@
 //! Freshness at first contact: is the served code graph behind the checkout?
 //!
 //! A full code ingest records the commit its walk observed at `HEAD`
-//! ([`IndexedVcsStateV1`], persisted as [`INDEXED_VCS_STATE_FILE`] and carried
-//! in every brain checkpoint). `north` and `health` compare it with the `HEAD`
-//! of the checkout the caller works in and, only when the two differ, carry one
-//! short `graph_drift` note: the indexed commit, the current `HEAD`, how many
-//! commits and files separate them, and the exact refresh call. A graph at
-//! `HEAD` adds nothing to either packet.
+//! ([`IndexedCommit`]). `north` and `health` compare it with the `HEAD` of the
+//! checkout the caller works in and, only when the two differ, carry one short
+//! `graph_drift` note: the indexed commit, the current `HEAD`, how many commits
+//! and files separate them, and the exact refresh call. A graph at `HEAD` adds
+//! nothing to either packet.
+//!
+//! PERSISTENCE IS ADVISORY. The commit lives in the [`INDEXED_VCS_STATE_FILE`]
+//! sidecar, published only AFTER the graph it describes is durable (direct
+//! `persist`, or the brain actor's post-CURRENT effects), with a temp file and a
+//! rename. It is never part of a checkpoint or of the strict checkpoint/rebuild
+//! digest, so a runtime this code has ingested still boots under a binary that
+//! predates it. Reading it back is lenient everywhere: missing, unparsable,
+//! recorded for a root the brain does not declare, or recorded for another code
+//! graph (a crash between the graph write and this one) all mean "unknown", and
+//! unknown means no note — never a guessed one, never a failed boot.
 //!
 //! The comparison is read-only. At a matching `HEAD` it costs one
 //! `git rev-parse`; at a drifted `HEAD` the counts (`rev-list --count`,
 //! `diff --name-only` between the two commits — no index, no working tree) are
 //! measured once and memoized per (indexed commit, checkout, `HEAD`), so the
-//! next call at the same `HEAD` costs one `git rev-parse` again. Nothing here
-//! writes: not the runtime, not the repository, not the index.
+//! next call at the same `HEAD` costs one `git rev-parse` again. The check
+//! writes nothing: not the runtime, not the repository, not the index.
 //!
 //! Whose `HEAD`? The bound root's, unless the caller's root is known and sits in
 //! a checkout of its own nested inside the bound root that shares the bound
@@ -24,110 +33,193 @@
 //! not cover it.
 
 use crate::session::SessionState;
-use m1nd_core::error::{M1ndError, M1ndResult};
+use m1nd_core::graph::Graph;
 use serde::{Deserialize, Serialize};
+use sha2::{Digest, Sha256};
+use std::io::Write;
 use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
 
-/// Runtime-root file that persists the indexed commit next to the graph.
+/// Runtime-root sidecar that records the indexed commit next to the graph.
 pub const INDEXED_VCS_STATE_FILE: &str = "indexed_vcs_state.json";
-/// Checkpoint logical name of [`INDEXED_VCS_STATE_FILE`].
-pub const INDEXED_VCS_STATE_LOGICAL_NAME: &str = "indexed_vcs_state";
+/// Dot-prefixed, so a leftover from a crash is hidden from a code walk even
+/// when the runtime lives inside the scanned root.
+const INDEXED_VCS_STATE_TEMP_FILE: &str = ".indexed_vcs_state.json.tmp";
 const INDEXED_VCS_STATE_SCHEMA: &str = "m1nd-indexed-vcs-state-v1";
 /// Abbreviated commit length used in the note: unambiguous in practice and
 /// a fraction of the bytes of a full object id.
 const SHORT_OID_LEN: usize = 12;
 
-/// The commit a code graph was built from, and the root that was scanned.
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(deny_unknown_fields)]
-pub struct IndexedVcsStateV1 {
-    pub schema: String,
-    /// Full object id of the commit at `HEAD` when the ingest walked the root.
+/// The commit the live code graph was built from, and the root that was
+/// scanned (canonical — the exact root a refresh must name).
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct IndexedCommit {
     pub head_oid: String,
-    /// Canonical root the ingest scanned — the exact root a refresh must name.
     pub root: String,
 }
 
-impl IndexedVcsStateV1 {
+impl IndexedCommit {
     pub fn new(head_oid: &str, root: &str) -> Self {
         Self {
-            schema: INDEXED_VCS_STATE_SCHEMA.to_string(),
             head_oid: head_oid.to_string(),
             root: root.to_string(),
         }
     }
+}
 
+/// The sidecar record: the commit, the root, and a witness of the code graph
+/// it was published for.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+struct IndexedVcsStateV1 {
+    schema: String,
+    head_oid: String,
+    root: String,
+    code_witness: String,
+}
+
+impl IndexedVcsStateV1 {
     fn is_valid(&self) -> bool {
         self.schema == INDEXED_VCS_STATE_SCHEMA
-            && (self.head_oid.len() == 40 || self.head_oid.len() == 64)
-            && self.head_oid.bytes().all(|byte| byte.is_ascii_hexdigit())
+            && is_object_id(&self.head_oid)
             && !self.root.trim().is_empty()
-    }
-
-    /// Byte-deterministic encoding shared by direct persistence and the
-    /// checkpoint candidate.
-    pub fn encode(&self) -> M1ndResult<Vec<u8>> {
-        Ok(serde_json::to_vec_pretty(self)?)
-    }
-
-    /// Strict decode: unknown fields, another schema, or a malformed commit id
-    /// are corruption, never a silent default.
-    pub fn decode(bytes: &[u8]) -> M1ndResult<Self> {
-        let state: Self = serde_json::from_slice(bytes)?;
-        if !state.is_valid() {
-            return Err(M1ndError::CorruptState {
-                reason: format!(
-                    "{INDEXED_VCS_STATE_FILE} is not a valid {INDEXED_VCS_STATE_SCHEMA} record"
-                ),
-            });
-        }
-        Ok(state)
+            && self.code_witness.len() == 64
     }
 }
 
-/// Friendly boot: a missing file is "indexed commit unknown"; an unreadable or
-/// malformed one is the same, said out loud. The note then stays silent until
-/// the next code ingest records a commit again.
-pub fn load_indexed_vcs_state(path: &Path) -> Option<IndexedVcsStateV1> {
-    match std::fs::read(path) {
-        Ok(bytes) => match IndexedVcsStateV1::decode(&bytes) {
-            Ok(state) => Some(state),
-            Err(error) => {
-                eprintln!(
-                    "[m1nd] WARNING: ignoring {} ({error}); the indexed commit is unknown until the next code ingest",
-                    path.display()
-                );
-                None
+fn is_object_id(oid: &str) -> bool {
+    (oid.len() == 40 || oid.len() == 64) && oid.bytes().all(|byte| byte.is_ascii_hexdigit())
+}
+
+/// Digest of the code ingest's own nodes: every `file::` node id with its line
+/// span, in sorted order. Recall and document merges add no `file::` node, so
+/// `memorize` never disturbs it; any change to the code graph does. It binds the
+/// sidecar to one code graph without touching the checkpoint.
+pub(crate) fn code_graph_witness(graph: &Graph) -> String {
+    let mut rows = graph
+        .id_to_node
+        .iter()
+        .filter_map(|(interned, node)| {
+            let id = graph.strings.resolve(*interned);
+            if !id.starts_with("file::") {
+                return None;
             }
-        },
-        Err(error) if error.kind() == std::io::ErrorKind::NotFound => None,
-        Err(error) => {
-            eprintln!(
-                "[m1nd] WARNING: cannot read {} ({error}); the indexed commit is unknown until the next code ingest",
-                path.display()
-            );
-            None
-        }
+            let provenance = graph
+                .nodes
+                .provenance
+                .get(node.as_usize())
+                .copied()
+                .unwrap_or_default();
+            Some((id.to_string(), provenance.line_start, provenance.line_end))
+        })
+        .collect::<Vec<_>>();
+    rows.sort();
+    let mut hasher = Sha256::new();
+    hasher.update(b"m1nd/indexed-vcs-code-witness/v1\0");
+    for (id, line_start, line_end) in rows {
+        hasher.update((id.len() as u64).to_be_bytes());
+        hasher.update(id.as_bytes());
+        hasher.update(line_start.to_be_bytes());
+        hasher.update(line_end.to_be_bytes());
     }
+    crate::util::hex_lower(&hasher.finalize())
 }
 
-/// Direct (non-checkpoint) persistence: write the record, or remove a record
-/// that no longer describes the graph.
-pub fn save_indexed_vcs_state(path: &Path, state: Option<&IndexedVcsStateV1>) -> M1ndResult<()> {
-    match state {
-        Some(state) => {
-            let tmp = path.with_extension("json.tmp");
-            std::fs::write(&tmp, state.encode()?)?;
-            std::fs::rename(&tmp, path)?;
-            Ok(())
+/// Read the sidecar back for `graph`. Every doubt is "unknown" (`None`), said
+/// once on stderr, never an error: the record is advisory.
+pub(crate) fn load_indexed_commit(
+    runtime_root: &Path,
+    graph: &Graph,
+    declared_roots: &[String],
+) -> Option<IndexedCommit> {
+    let path = runtime_root.join(INDEXED_VCS_STATE_FILE);
+    let unknown = |why: &str| {
+        eprintln!(
+            "[m1nd] indexed commit unknown: {} {why}; no drift note until the next code ingest",
+            path.display()
+        );
+        None
+    };
+    let bytes = match std::fs::read(&path) {
+        Ok(bytes) => bytes,
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => return None,
+        Err(_) => return unknown("is unreadable"),
+    };
+    let Ok(record) = serde_json::from_slice::<IndexedVcsStateV1>(&bytes) else {
+        return unknown("is not a valid record");
+    };
+    if !record.is_valid() {
+        return unknown("is not a valid record");
+    }
+    let declared = declared_roots.iter().any(|root| {
+        crate::project_brains::ProjectBrainRegistry::canonical_key(root) == record.root
+    });
+    if !declared {
+        return unknown("names a root this brain does not declare");
+    }
+    if record.code_witness != code_graph_witness(graph) {
+        return unknown("was recorded for another code graph");
+    }
+    Some(IndexedCommit {
+        head_oid: record.head_oid,
+        root: record.root,
+    })
+}
+
+/// Publish `state.indexed_vcs` to the sidecar if it changed. Call only once the
+/// graph it describes is durable. Best effort: a failed write removes the old
+/// record (so it cannot describe the wrong graph) and leaves the commit to be
+/// published again at the next durable point.
+pub(crate) fn publish_indexed_commit(state: &mut SessionState) {
+    if !state.indexed_vcs_unpublished || state.read_only {
+        return;
+    }
+    let path = state.runtime_root.join(INDEXED_VCS_STATE_FILE);
+    let result = match state.indexed_vcs.as_ref() {
+        Some(indexed) => {
+            let record = IndexedVcsStateV1 {
+                schema: INDEXED_VCS_STATE_SCHEMA.to_string(),
+                head_oid: indexed.head_oid.clone(),
+                root: indexed.root.clone(),
+                code_witness: code_graph_witness(&state.graph.read()),
+            };
+            write_atomically(&state.runtime_root, &path, &record)
         }
-        None => match std::fs::remove_file(path) {
+        None => match std::fs::remove_file(&path) {
             Ok(()) => Ok(()),
             Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(()),
-            Err(error) => Err(error.into()),
+            Err(error) => Err(error),
         },
+    };
+    match result {
+        Ok(()) => state.indexed_vcs_unpublished = false,
+        Err(error) => {
+            eprintln!(
+                "[m1nd] WARNING: could not publish {} ({error}); the indexed commit stays unknown after a restart",
+                path.display()
+            );
+            let _ = std::fs::remove_file(&path);
+        }
     }
+}
+
+fn write_atomically(
+    runtime_root: &Path,
+    path: &Path,
+    record: &IndexedVcsStateV1,
+) -> std::io::Result<()> {
+    let bytes = serde_json::to_vec_pretty(record).map_err(std::io::Error::other)?;
+    let temp = runtime_root.join(INDEXED_VCS_STATE_TEMP_FILE);
+    let written = (|| {
+        let mut file = std::fs::File::create(&temp)?;
+        file.write_all(&bytes)?;
+        file.sync_all()?;
+        std::fs::rename(&temp, path)
+    })();
+    if written.is_err() {
+        let _ = std::fs::remove_file(&temp);
+    }
+    written
 }
 
 /// Process-only memo of the last drift measurement. Never persisted.
@@ -223,7 +315,7 @@ fn nested_checkout(bound: &Path, caller: &Path) -> Option<PathBuf> {
     None
 }
 
-fn measure(bound: &Path, indexed: &IndexedVcsStateV1, view: &CheckoutView) -> serde_json::Value {
+fn measure(bound: &Path, indexed: &IndexedCommit, view: &CheckoutView) -> serde_json::Value {
     // Worktrees share one object store, so both commits resolve from the bound
     // root, and the file count is scoped to the subtree that root indexes.
     let count = |range: String| {
@@ -315,31 +407,120 @@ fn git_stdout(dir: &Path, args: &[&str]) -> Option<Vec<u8>> {
 mod tests {
     use super::*;
 
-    #[test]
-    fn record_round_trips_and_refuses_corruption() {
-        let state = IndexedVcsStateV1::new(&"a".repeat(40), "/repo-alpha");
-        let bytes = state.encode().expect("encode");
-        assert_eq!(IndexedVcsStateV1::decode(&bytes).expect("decode"), state);
-        assert_eq!(bytes, state.encode().expect("deterministic encode"));
+    fn code_graph(lines: u32) -> Graph {
+        let mut graph = Graph::new();
+        graph
+            .add_node(
+                "file::src/lib.rs",
+                "src/lib.rs",
+                m1nd_core::types::NodeType::File,
+                &[],
+                0.0,
+                0.0,
+            )
+            .expect("file node");
+        let node = graph
+            .add_node(
+                "file::src/lib.rs::fn::target",
+                "target",
+                m1nd_core::types::NodeType::Function,
+                &[],
+                0.0,
+                0.0,
+            )
+            .expect("fn node");
+        graph.set_node_provenance(
+            node,
+            m1nd_core::graph::NodeProvenanceInput {
+                source_path: Some("src/lib.rs"),
+                line_start: Some(lines),
+                line_end: Some(lines + 2),
+                ..Default::default()
+            },
+        );
+        graph.finalize().expect("finalize");
+        graph
+    }
 
-        let short = IndexedVcsStateV1::new("abc", "/repo-alpha");
-        assert!(IndexedVcsStateV1::decode(&short.encode().unwrap()).is_err());
-        let mut value: serde_json::Value = serde_json::from_slice(&bytes).unwrap();
-        value["extra"] = serde_json::json!(1);
-        assert!(IndexedVcsStateV1::decode(&serde_json::to_vec(&value).unwrap()).is_err());
+    fn record(root: &str, graph: &Graph) -> IndexedVcsStateV1 {
+        IndexedVcsStateV1 {
+            schema: INDEXED_VCS_STATE_SCHEMA.to_string(),
+            head_oid: "a".repeat(40),
+            root: root.to_string(),
+            code_witness: code_graph_witness(graph),
+        }
     }
 
     #[test]
-    fn save_writes_then_removes_the_record() {
+    fn the_witness_moves_with_the_code_graph_only() {
+        let base = code_graph(1);
+        assert_eq!(
+            code_graph_witness(&base),
+            code_graph_witness(&code_graph(1))
+        );
+        assert_ne!(
+            code_graph_witness(&base),
+            code_graph_witness(&code_graph(13))
+        );
+        let mut with_memory = code_graph(1);
+        with_memory
+            .add_node(
+                "light::agent-memory::claim",
+                "a memorized claim",
+                m1nd_core::types::NodeType::Concept,
+                &[],
+                0.0,
+                0.0,
+            )
+            .expect("memory node");
+        assert_eq!(code_graph_witness(&base), code_graph_witness(&with_memory));
+    }
+
+    #[test]
+    fn every_doubtful_record_reads_back_as_unknown() {
         let dir = tempfile::tempdir().expect("tempdir");
-        let path = dir.path().join(INDEXED_VCS_STATE_FILE);
-        let state = IndexedVcsStateV1::new(&"b".repeat(40), "/repo-alpha");
-        save_indexed_vcs_state(&path, Some(&state)).expect("save");
-        assert_eq!(load_indexed_vcs_state(&path), Some(state));
-        save_indexed_vcs_state(&path, None).expect("remove");
-        assert!(!path.exists());
-        save_indexed_vcs_state(&path, None).expect("absent stays absent");
-        assert_eq!(load_indexed_vcs_state(&path), None);
+        let runtime = dir.path().join("runtime");
+        let root = dir.path().join("repo-alpha");
+        std::fs::create_dir_all(&runtime).expect("runtime");
+        std::fs::create_dir_all(&root).expect("root");
+        let declared = vec![root.to_string_lossy().to_string()];
+        let canonical = crate::project_brains::ProjectBrainRegistry::canonical_key(&declared[0]);
+        let graph = code_graph(1);
+        let path = runtime.join(INDEXED_VCS_STATE_FILE);
+        let put = |record: &IndexedVcsStateV1| {
+            write_atomically(&runtime, &path, record).expect("write record");
+        };
+
+        // Missing: unknown, silently.
+        assert_eq!(load_indexed_commit(&runtime, &graph, &declared), None);
+
+        // A sound record for this graph and root is the one case that is known.
+        put(&record(&canonical, &graph));
+        assert_eq!(
+            load_indexed_commit(&runtime, &graph, &declared),
+            Some(IndexedCommit::new(&"a".repeat(40), &canonical))
+        );
+        assert!(!runtime.join(INDEXED_VCS_STATE_TEMP_FILE).exists());
+
+        // Recorded for another code graph (a crash between the two writes).
+        put(&record(&canonical, &code_graph(13)));
+        assert_eq!(load_indexed_commit(&runtime, &graph, &declared), None);
+
+        // Recorded for a root this brain does not declare.
+        put(&record("/elsewhere/repo-beta", &graph));
+        assert_eq!(load_indexed_commit(&runtime, &graph, &declared), None);
+
+        // Unparsable, truncated, or from an unknown schema.
+        std::fs::write(&path, b"{not json").expect("garbage");
+        assert_eq!(load_indexed_commit(&runtime, &graph, &declared), None);
+        let mut foreign = record(&canonical, &graph);
+        foreign.schema = "m1nd-indexed-vcs-state-v9".into();
+        put(&foreign);
+        assert_eq!(load_indexed_commit(&runtime, &graph, &declared), None);
+        let mut short = record(&canonical, &graph);
+        short.head_oid = "abc".into();
+        put(&short);
+        assert_eq!(load_indexed_commit(&runtime, &graph, &declared), None);
     }
 
     #[test]
