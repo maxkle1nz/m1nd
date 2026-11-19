@@ -1886,18 +1886,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "m1nd-openclaw"
-version = "0.1.0"
-dependencies = [
- "clap",
- "m1nd-mcp",
- "parking_lot",
- "serde",
- "serde_json",
- "tokio",
-]
-
-[[package]]
 name = "m1nd-runnerd"
 version = "1.6.5"
 dependencies = [
