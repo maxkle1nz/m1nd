@@ -68,6 +68,17 @@ qualified or published (see [docs/RELEASE-2.0.0-PROPOSAL.md](docs/RELEASE-2.0.0-
 
 ### Fixed
 
+- **`/api/health` graph counts on a served owner:** when a tool call started the
+  bound brain actor before the first `/api/health` read, health answered
+  `node_count: 0`, `edge_count: 0` and `uptime_secs: 0` for the life of the
+  process while `/api/instance/self` reported the real graph, and later
+  refreshes never reached it. The actor now publishes a graph census at the
+  end of every turn that can change the session, before that turn replies, and
+  health reads it without queueing behind the actor: counts follow the last
+  finished turn (`graph_counts_source:
+  "ACTOR_TURN_CENSUS"`, `graph_counts_age_secs`) and uptime keeps moving. When
+  no reading exists, counts are `null` with `graph_counts_unavailable_reason`,
+  never `0`. See the [REST surface](docs/wiki/src/architecture/mcp-server.md).
 - **Ranking no longer depends on hash order:** the semantic engine summed n-gram
   norms and dot products, and file-group seek summed BM25 terms, in `HashMap`/`HashSet`
   order, and cut equal semantic scores at top-k in that order. Two processes over the

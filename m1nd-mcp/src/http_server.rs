@@ -1786,20 +1786,62 @@ async fn handle_health(State(state): State<Arc<AppState>>) -> impl IntoResponse 
     static SNAPSHOTS: OnceLock<StdMutex<HashMap<usize, serde_json::Value>>> = OnceLock::new();
     let cache_key = Arc::as_ptr(&state.session) as usize;
     let cache = SNAPSHOTS.get_or_init(|| StdMutex::new(HashMap::new()));
-    let project_brain_runtimes = state.project_brains.runtime_health_snapshots();
-
-    // Once the bound actor exists, health never queues behind it and never
-    // re-enters the raw SessionState cell. The actor publishes its own lock-free
-    // health; graph counters remain the last actor-serialized snapshot and are
-    // labeled CACHED rather than silently claimed fresh.
-    if let Ok(Some(runtime_health)) = state.project_brains.bound_runtime_health() {
-        let mut snapshot = cache
+    let cached = || {
+        cache
             .lock()
             .unwrap_or_else(|poisoned| poisoned.into_inner())
             .get(&cache_key)
             .cloned()
-            .unwrap_or_else(empty_health_snapshot);
+    };
+    let project_brain_runtimes = state.project_brains.runtime_health_snapshots();
+
+    // Once the bound actor exists, health never queues behind it and never
+    // re-enters the raw SessionState cell. The actor publishes its own lock-free
+    // health and, at the end of every turn that can change the session, a
+    // graph census; the counters below come from that census and are labeled
+    // CACHED rather than claimed fresh.
+    if let Ok(Some(runtime_health)) = state.project_brains.bound_runtime_health() {
+        let census = state.project_brains.bound_runtime_census();
+        let mut snapshot = match (cached(), census.as_ref()) {
+            (Some(snapshot), _) => snapshot,
+            // A tool call started the actor before any health read: seed the
+            // cache from the census instead of serving a placeholder for the
+            // life of the process.
+            (None, Some(census)) => {
+                let seeded = health_snapshot_json(
+                    HttpHealthReadSnapshot::from_census(census),
+                    project_brain_runtimes.clone(),
+                );
+                cache
+                    .lock()
+                    .unwrap_or_else(|poisoned| poisoned.into_inner())
+                    .insert(cache_key, seeded.clone());
+                seeded
+            }
+            (None, None) => empty_health_snapshot(
+                "the bound actor has not published a graph census and no health read was \
+                 cached; see bound_brain_runtime for its status",
+            ),
+        };
         if let Some(object) = snapshot.as_object_mut() {
+            let counts_claim = match census.as_ref() {
+                Some(census) => {
+                    apply_graph_census(object, census);
+                    "graph counts are the census the bound actor published after its last \
+                     completed turn; a turn still running is not reflected"
+                }
+                None if object.contains_key("graph_counts_unavailable_reason") => {
+                    "graph counts are withheld: no actor census or earlier health read exists"
+                }
+                None => {
+                    object.insert(
+                        "graph_counts_source".into(),
+                        serde_json::json!("LAST_HEALTH_READ"),
+                    );
+                    "graph counts are the last health read before the actor census; they may \
+                     predate later turns"
+                }
+            };
             let healthy = runtime_health.status == "healthy" && runtime_health.accepting;
             object.insert(
                 "status".into(),
@@ -1813,7 +1855,7 @@ async fn handle_health(State(state): State<Arc<AppState>>) -> impl IntoResponse 
             object.insert(
                 "health_non_claims".into(),
                 serde_json::json!([
-                    "cached health does not claim current graph counts",
+                    counts_claim,
                     "actor health proves admission and checkpoint status, not tool progress"
                 ]),
             );
@@ -1846,13 +1888,15 @@ async fn handle_health(State(state): State<Arc<AppState>>) -> impl IntoResponse 
     let health = match read {
         Ok(Ok(snapshot)) => snapshot,
         Ok(Err(_)) | Err(_) => {
-            let mut snapshot = cache
-                .lock()
-                .unwrap_or_else(|poisoned| poisoned.into_inner())
-                .get(&cache_key)
-                .cloned()
-                .unwrap_or_else(empty_health_snapshot);
+            let mut snapshot = cached().unwrap_or_else(|| {
+                empty_health_snapshot(
+                    "the first actor read for health failed and no health read was cached",
+                )
+            });
             if let Some(object) = snapshot.as_object_mut() {
+                if let Some(census) = state.project_brains.bound_runtime_census() {
+                    apply_graph_census(object, &census);
+                }
                 object.insert("status".into(), serde_json::json!("degraded"));
                 object.insert("owner_busy".into(), serde_json::json!(true));
                 object.insert(
@@ -1877,18 +1921,74 @@ async fn handle_health(State(state): State<Arc<AppState>>) -> impl IntoResponse 
     (StatusCode::OK, Json(result))
 }
 
-fn empty_health_snapshot() -> serde_json::Value {
+/// Body served when no graph reading exists at all. Every count is withheld
+/// with the stated reason: a zero here would claim an empty graph.
+fn empty_health_snapshot(reason: &str) -> serde_json::Value {
     serde_json::json!({
         "status": "degraded",
-        "uptime_secs": 0,
-        "node_count": 0,
-        "edge_count": 0,
-        "queries_processed": 0,
+        "uptime_secs": null,
+        "node_count": null,
+        "edge_count": null,
+        "queries_processed": null,
         "agent_sessions": [],
         "domain": "unknown",
-        "graph_generation": 0,
-        "plasticity_generation": 0,
+        "graph_generation": null,
+        "plasticity_generation": null,
+        "graph_counts_source": "NONE",
+        "graph_counts_unavailable_reason": reason,
     })
+}
+
+/// Overlay the bound actor's last published census on a health body. Uptime
+/// is derived from the session's own start instant, so it keeps moving while
+/// the counts are only as fresh as the actor's last completed turn.
+fn apply_graph_census(
+    object: &mut serde_json::Map<String, serde_json::Value>,
+    census: &crate::brain_runtime::BrainGraphCensus,
+) {
+    let fields = [
+        (
+            "uptime_secs",
+            serde_json::json!(census.session_started_at.elapsed().as_secs_f64()),
+        ),
+        ("node_count", serde_json::json!(census.node_count)),
+        ("edge_count", serde_json::json!(census.edge_count)),
+        (
+            "queries_processed",
+            serde_json::json!(census.queries_processed),
+        ),
+        ("agent_sessions", serde_json::json!(census.agent_sessions)),
+        ("domain", serde_json::json!(census.domain)),
+        (
+            "graph_generation",
+            serde_json::json!(census.graph_generation),
+        ),
+        (
+            "plasticity_generation",
+            serde_json::json!(census.plasticity_generation),
+        ),
+        (
+            "graph_counts_source",
+            serde_json::json!("ACTOR_TURN_CENSUS"),
+        ),
+        (
+            "graph_counts_age_secs",
+            serde_json::json!(census.captured_at.elapsed().as_secs_f64()),
+        ),
+    ];
+    for (key, value) in fields {
+        object.insert(key.into(), value);
+    }
+    object.remove("graph_counts_unavailable_reason");
+    if let Some(alignment) = object
+        .get_mut("host_binding_alignment")
+        .and_then(serde_json::Value::as_object_mut)
+    {
+        alignment.insert(
+            "current_runtime_has_graph".into(),
+            serde_json::json!(census.node_count > 0 && census.edge_count > 0),
+        );
+    }
 }
 
 fn health_snapshot_json(
@@ -1909,6 +2009,7 @@ fn health_snapshot_json(
         "status": if snapshot.node_count > 0 { "ok" } else { "empty" },
         "owner_busy": false,
         "snapshot_freshness": "FRESH_ACTOR_SNAPSHOT",
+        "graph_counts_source": "FRESH_ACTOR_READ",
         "uptime_secs": snapshot.uptime_secs,
         "node_count": snapshot.node_count,
         "edge_count": snapshot.edge_count,
@@ -2902,6 +3003,23 @@ struct HttpHealthReadSnapshot {
 }
 
 impl HttpHealthReadSnapshot {
+    /// Seed a health body from the actor's published census. The binding
+    /// fingerprint probes the filesystem from inside the session, so a
+    /// census-seeded body carries `null` there rather than invent one.
+    fn from_census(census: &crate::brain_runtime::BrainGraphCensus) -> Self {
+        Self {
+            uptime_secs: census.session_started_at.elapsed().as_secs_f64(),
+            node_count: census.node_count,
+            edge_count: census.edge_count,
+            queries_processed: census.queries_processed,
+            agent_sessions: census.agent_sessions.clone(),
+            domain: census.domain.clone(),
+            graph_generation: census.graph_generation,
+            plasticity_generation: census.plasticity_generation,
+            binding_fingerprint: serde_json::Value::Null,
+        }
+    }
+
     fn from_session(session: &SessionState) -> Self {
         let (node_count, edge_count) = {
             let graph = session.graph.read();
@@ -6068,6 +6186,121 @@ mod tests {
         })
         .await;
         assert_eq!(response.status(), StatusCode::OK);
+    }
+
+    async fn health_json(app: &Arc<AppState>) -> serde_json::Value {
+        let response = handle_health(State(app.clone())).await.into_response();
+        assert_eq!(response.status(), StatusCode::OK);
+        let bytes = axum::body::to_bytes(response.into_body(), usize::MAX)
+            .await
+            .expect("health body");
+        serde_json::from_slice(&bytes).expect("health json")
+    }
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn health_reports_actor_census_when_a_tool_turn_starts_the_actor_first() {
+        use m1nd_core::types::{EdgeDirection, FiniteF32, NodeType};
+
+        let temp = tempfile::tempdir().expect("temp runtime");
+        std::fs::create_dir_all(temp.path()).expect("mk runtime");
+        let mut graph = m1nd_core::graph::Graph::new();
+        let lib = graph
+            .add_node("file::src/lib.rs", "lib.rs", NodeType::File, &[], 0.0, 0.0)
+            .expect("lib node");
+        let util = graph
+            .add_node(
+                "file::src/util.rs",
+                "util.rs",
+                NodeType::File,
+                &[],
+                0.0,
+                0.0,
+            )
+            .expect("util node");
+        graph
+            .add_edge(
+                lib,
+                util,
+                "imports",
+                FiniteF32::new(0.8),
+                EdgeDirection::Forward,
+                false,
+                FiniteF32::new(0.8),
+            )
+            .expect("imports edge");
+        graph.finalize().expect("finalize");
+        m1nd_core::snapshot::save_graph(&graph, &temp.path().join("graph_snapshot.json"))
+            .expect("seed graph snapshot");
+        let app = rest_owner(temp.path());
+
+        // A tool-shaped actor turn reaches the bound brain before any health read.
+        let registry = Arc::clone(&app.project_brains);
+        let session = app.session.clone();
+        tokio::task::spawn_blocking(move || {
+            registry.execute_target_runtime(session, None, true, false, |_state| Ok(()))
+        })
+        .await
+        .expect("tool turn worker")
+        .expect("tool turn");
+        assert!(app
+            .project_brains
+            .bound_runtime_health()
+            .expect("bound runtime health")
+            .is_some());
+
+        let registry = Arc::clone(&app.project_brains);
+        let session = app.session.clone();
+        let (nodes, edges) = tokio::task::spawn_blocking(move || {
+            registry
+                .read_target_runtime_snapshot(session, None, true, |state| {
+                    let graph = state.graph.read();
+                    Ok((graph.num_nodes() as u64, graph.num_edges() as u64))
+                })
+                .map(|snapshot| snapshot.value)
+        })
+        .await
+        .expect("count worker")
+        .expect("actor counts");
+        assert_eq!(nodes, 2, "seeded graph must be served");
+
+        let first = health_json(&app).await;
+        assert_eq!(first["snapshot_freshness"], "CACHED_ACTOR_SAFE");
+        assert_eq!(first["graph_counts_source"], "ACTOR_TURN_CENSUS");
+        assert_eq!(first["node_count"].as_u64(), Some(nodes), "{first}");
+        assert_eq!(first["edge_count"].as_u64(), Some(edges), "{first}");
+        assert!(first.get("graph_counts_unavailable_reason").is_none());
+        assert_eq!(
+            first["host_binding_alignment"]["current_runtime_has_graph"],
+            serde_json::json!(true)
+        );
+        assert!(first["tool_surface_contract"].is_object(), "{first}");
+        let first_uptime = first["uptime_secs"].as_f64().expect("uptime");
+        assert!(first_uptime > 0.0, "{first}");
+
+        tokio::time::sleep(Duration::from_millis(20)).await;
+        let second = health_json(&app).await;
+        assert_eq!(second["node_count"], first["node_count"]);
+        assert!(
+            second["uptime_secs"].as_f64().expect("uptime") > first_uptime,
+            "uptime must keep moving between census reads: {second}"
+        );
+    }
+
+    #[test]
+    fn health_placeholder_withholds_counts_instead_of_claiming_zero() {
+        let body = empty_health_snapshot("no reading yet");
+        for key in [
+            "node_count",
+            "edge_count",
+            "uptime_secs",
+            "queries_processed",
+            "graph_generation",
+            "plasticity_generation",
+        ] {
+            assert!(body[key].is_null(), "{key} must be withheld: {body}");
+        }
+        assert_eq!(body["graph_counts_unavailable_reason"], "no reading yet");
+        assert_eq!(body["graph_counts_source"], "NONE");
     }
 
     #[tokio::test]

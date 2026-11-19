@@ -690,6 +690,50 @@ struct BrainRuntimeHealthState {
     in_doubt_checkpoint_id: Option<String>,
 }
 
+/// Graph counters the actor copies from the session it owns once before it
+/// admits work, after every reconciliation, and at the end of every turn that
+/// can change the session (execute, checkpointed execute, commit) BEFORE that
+/// turn's caller gets its reply, so a caller that saw its tool call finish
+/// reads a census that includes it. Readers take this copy without entering
+/// the command queue or the SessionState lock, so a busy owner still reports
+/// the graph as of its last finished turn instead of a placeholder. A turn
+/// that is still running is not reflected.
+#[derive(Clone, Debug)]
+pub(crate) struct BrainGraphCensus {
+    pub node_count: usize,
+    pub edge_count: usize,
+    pub graph_generation: u64,
+    pub plasticity_generation: u64,
+    pub queries_processed: u64,
+    pub domain: String,
+    pub agent_sessions: Vec<serde_json::Value>,
+    /// The session's own start instant; readers derive a live uptime from it.
+    pub session_started_at: Instant,
+    /// When the actor copied these counters.
+    pub captured_at: Instant,
+}
+
+impl BrainGraphCensus {
+    /// `None` when a stray graph guard is held: publishing never waits.
+    fn capture(state: &SessionState) -> Option<Self> {
+        let (node_count, edge_count) = {
+            let graph = state.graph.try_read()?;
+            (graph.num_nodes() as usize, graph.num_edges())
+        };
+        Some(Self {
+            node_count,
+            edge_count,
+            graph_generation: state.graph_generation,
+            plasticity_generation: state.plasticity_generation,
+            queries_processed: state.queries_processed,
+            domain: state.domain.name.clone(),
+            agent_sessions: state.session_summary(),
+            session_started_at: state.start_time,
+            captured_at: Instant::now(),
+        })
+    }
+}
+
 #[derive(Clone, Debug)]
 pub(crate) struct BrainBootRecovery {
     pub manifest: CheckpointManifestV1,
@@ -1010,6 +1054,9 @@ pub(crate) struct BrainActorHandle {
     /// returns every command admitted before the pause is already in the FIFO.
     admission: Arc<Mutex<BrainActorAdmission>>,
     health: Arc<Mutex<BrainRuntimeHealthState>>,
+    /// Last graph census published by the actor thread (see
+    /// [`BrainGraphCensus`]); never filled by a caller.
+    census: Arc<Mutex<Option<BrainGraphCensus>>>,
     join: Mutex<Option<JoinHandle<()>>>,
     activation: Mutex<Option<BrainActorActivation>>,
     heartbeat_stop: Arc<AtomicBool>,
@@ -1405,6 +1452,7 @@ impl BrainActorHandle {
         let (sender, receiver) = mpsc::sync_channel(capacity);
         let thread_brain_id = brain_id.clone();
         let actor_health = Arc::clone(&health);
+        let census = Arc::new(Mutex::new(None));
         // A writable actor must never accept its first mutation without an
         // authoritative old generation.  Otherwise a failed first checkpoint
         // could leave a canonical working file but no CURRENT pointer, and a
@@ -1432,6 +1480,7 @@ impl BrainActorHandle {
             deferred_read_publishes: 0,
             admission: Arc::clone(&admission),
             health: actor_health,
+            census: Arc::clone(&census),
         };
         // Start the OS thread before crossing the bootstrap checkpoint commit
         // boundary. If thread creation fails, no candidate can have reached
@@ -1453,6 +1502,9 @@ impl BrainActorHandle {
                 } else {
                     Ok(())
                 };
+                // Published before the handshake so the census exists by the
+                // time any reader can reach this actor's handle.
+                actor_state.publish_census();
                 let should_run = startup_result.is_ok();
                 if startup_tx.send(startup_result).is_err() {
                     // If the starter disappeared after CURRENT became
@@ -1513,6 +1565,7 @@ impl BrainActorHandle {
             sender,
             admission,
             health,
+            census,
             join: Mutex::new(Some(join)),
             activation: Mutex::new(Some(activation)),
             heartbeat_stop,
@@ -1575,6 +1628,12 @@ impl BrainActorHandle {
         }
     }
 
+    /// The graph census from the actor's last completed turn, copied without
+    /// queueing behind work or taking the session lock.
+    pub(crate) fn graph_census(&self) -> Option<BrainGraphCensus> {
+        lock_unpoisoned(&self.census).clone()
+    }
+
     pub fn try_read_snapshot<S, Read>(
         &self,
         read: Read,
@@ -1611,6 +1670,7 @@ impl BrainActorHandle {
         let brain_id = self.brain_id.clone();
         self.try_enqueue(Box::new(move |state| {
             let result = state.execute(mutating, execute);
+            state.publish_census();
             let _ = reply_tx.send(result);
         }))?;
         reply_rx
@@ -1634,6 +1694,7 @@ impl BrainActorHandle {
         let brain_id = self.brain_id.clone();
         self.try_enqueue(Box::new(move |state| {
             let result = state.execute_with_checkpoint_ack(execute);
+            state.publish_census();
             let _ = reply_tx.send(result);
         }))?;
         reply_rx
@@ -1657,6 +1718,7 @@ impl BrainActorHandle {
         let brain_id = self.brain_id.clone();
         self.try_enqueue(Box::new(move |state| {
             let result = state.commit(expected, proposal, apply);
+            state.publish_census();
             let _ = reply_tx.send(result);
         }))?;
         reply_rx
@@ -1980,6 +2042,7 @@ struct BrainActorState {
     deferred_read_publishes: u32,
     admission: Arc<Mutex<BrainActorAdmission>>,
     health: Arc<Mutex<BrainRuntimeHealthState>>,
+    census: Arc<Mutex<Option<BrainGraphCensus>>>,
 }
 
 impl BrainActorState {
@@ -2041,6 +2104,22 @@ impl BrainActorState {
             .as_ref()
             .map(|manifest| manifest.checkpoint_id.clone());
         health.in_doubt_checkpoint_id = self.in_doubt_checkpoint_id.clone();
+    }
+
+    /// Copy the graph census from the session this actor owns. Only the actor
+    /// thread calls this, after a turn has returned the session to its cell.
+    /// It never waits: a contended cell or graph lock (or a quarantined
+    /// session) keeps the previous census until the next turn.
+    fn publish_census(&self) {
+        let census = {
+            let Some(cell) = self.session.state.try_lock() else {
+                return;
+            };
+            cell.as_ref().and_then(BrainGraphCensus::capture)
+        };
+        if let Some(census) = census {
+            *lock_unpoisoned(&self.census) = Some(census);
+        }
     }
 
     fn mark_persistence_failure(&mut self, error: &BrainRuntimeError) {
@@ -3536,7 +3615,10 @@ fn run_actor(receiver: Receiver<ActorCommand>, mut state: BrainActorState) {
                 }
             }));
             match reconciliation {
-                Ok(Ok(true)) => reconciliation_backoff = Duration::from_millis(50),
+                Ok(Ok(true)) => {
+                    reconciliation_backoff = Duration::from_millis(50);
+                    state.publish_census();
+                }
                 Ok(Ok(false)) => {}
                 Ok(Err(error)) => {
                     state.persistence_failure =
