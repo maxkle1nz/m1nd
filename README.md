@@ -1,26 +1,64 @@
 <p align="center">
-  <img src=".github/m1nd-logo.svg" alt="m1nd" width="340" />
+  <img src=".github/m1nd-mark-deviance.svg" width="560" alt="m1nd — a DEViance Intelligence code graph" />
 </p>
 
 # m1nd
 
-**A local code graph and evidence-linked memory server for MCP coding agents.**
+A local code graph served over MCP — the map an agent reads before it touches your code.
 
-m1nd builds a structural graph of your repository in Rust, answers orientation and impact queries over MCP, and carries verified findings across sessions with explicit trust signals and declared gaps. The graph and memory live on your machine; graph queries do not require an LLM API key. Installation, updates, optional model downloads, and network-backed document providers can use the network; your MCP host has its own data policy.
+**Start here** — the five verbs I reach for first: <img src=".github/m1nd-mark-deviance-icon.svg" height="15" alt="" /> [`north`](docs/wiki/src/api-reference/lifecycle.md#m1ndnorth) to orient · <img src=".github/m1nd-mark-deviance-icon.svg" height="15" alt="" /> [`seek`](docs/wiki/src/api-reference/exploration.md#m1ndseek) to find by purpose · <img src=".github/m1nd-mark-deviance-icon.svg" height="15" alt="" /> [`impact`](docs/wiki/src/api-reference/analysis.md#m1ndimpact) to see what a change touches · <img src=".github/m1nd-mark-deviance-icon.svg" height="15" alt="" /> [`health`](docs/wiki/src/api-reference/lifecycle.md#m1ndhealth) to check the graph · <img src=".github/m1nd-mark-deviance-icon.svg" height="15" alt="" /> [`help`](docs/wiki/src/api-reference/overview.md) to reach every other verb
 
-<p align="center">
-  <a href="https://www.npmjs.com/package/@maxkle1nz/m1nd"><img src="https://img.shields.io/npm/v/@maxkle1nz/m1nd.svg?label=npm" alt="Published npm version" /></a>
-  <a href="https://github.com/maxkle1nz/m1nd/actions/workflows/ci.yml"><img src="https://github.com/maxkle1nz/m1nd/actions/workflows/ci.yml/badge.svg" alt="CI" /></a>
-  <a href="LICENSE"><img src="https://img.shields.io/badge/license-MIT-blue.svg" alt="MIT license" /></a>
-</p>
+## What this is
 
-[Get started](#get-started) · [Unreleased main](#unreleased-main) · [What to try next](#what-to-try-next) · [Limits](#what-it-does-and-does-not-prove) · [Documentation](docs/README.md)
+m1nd is an MCP server, written in Rust, that turns a repository into a graph of files, symbols, and the edges between them, then answers an agent's questions about that graph: where a behavior lives, what reaches a function, whether the graph even covers the repository the agent is standing in. The graph and its memory sidecar stay on your machine, and graph queries need no LLM API key. Installation, updates, optional model downloads, and network-backed document providers can use the network; your MCP host has its own data policy.
 
----
+It is built for agents first. The default menu is 15 verbs. Every answer says how far to trust it. `absent`, `abstain`, and `insufficient_evidence` are answers, not failures.
 
-## Get started
+## Why this exists
+
+I run coding agents every day, and the expensive part is never the edit. It is the agent reading whole files to find where something lives, then changing a function without knowing what calls it. m1nd's own repository is 18,078 nodes. No agent holds that in context, and none should have to. So the agent asks the graph, gets a file and a line span, opens the span, and confirms. The graph locates. The source decides.
+
+## Capabilities
+
+### FIND CODE BY PURPOSE. GET THE SPAN.
+
+Ask `seek` a question in plain language — "where is retry backoff decided" — and it returns ranked files with a trust envelope and a sufficiency signal. On the `main` source tree (2.0, unreleased), each of the first ten file rows also carries up to three symbols with `line_start` and `line_end`, best first ([#602](https://github.com/maxkle1nz/m1nd/pull/602)), so the agent opens a span instead of a whole file. On two fixed question sets, the facts whose span came back rose from 10 to 17 of 24 and from 5 to 11 of 24; packets shrank by about 8%; file ranking stayed identical in 16 of 16 questions. Since [#601](https://github.com/maxkle1nz/m1nd/pull/601) (2.0, unreleased) the ranking no longer depends on hash order, so the same graph ranks the same way twice. **PROVEN (n=16 questions, 48 facts).**
+
+### SEE WHAT A CHANGE TOUCHES BEFORE YOU MAKE IT.
+
+`impact` walks the graph out from one node. With `direction: "reverse"` it follows the edges that point into the node — for a function, the code that reaches it, which is what breaks when it changes. Aim it at a function `seek` returned, not at a type or a file, where same-named methods blur together. Routing "who calls / what breaks" questions to `impact` added one or two facts out of 24 over `seek` alone. That is a small gain on a small sample: a direction, not a law. Confirm callers with your compiler or a literal `search` before you edit. **PROVEN (small n).**
+
+### ORIENTATION IN ONE CALL.
+
+`north` takes the task as a sentence and answers in one round trip: focus nodes, bounded source excerpts of the top ones (up to 3 files and 2,000 characters by default; `code_budget_chars` widens it), whether the graph is bound to the repository you are in, prior memory with author and real age, a suggested next move, and `honest_gaps` — what it could not see. It is the one verb agents picked up on their own in real traffic, without being told to. That is adoption, not a measured benefit. **OBSERVED.**
+
+### BOUNDED TRUST. REAL REFUSALS.
+
+m1nd says what it does not know. Under the current calibration every `seek` envelope stays at `reverify` or `unprovable` — open the source and check — and prediction abstains: all v1 calibration rows are unqualified evidence, and running calibration does not enable `act`. A verb above the generic authority floor refuses with `generic_action_authority_required` instead of trying. A graph bound to another repository answers with `caller_root_mismatch`, and the write laws forbid writing through it. The default menu is 15 verbs; `help` is one of them, and it catalogs every registered verb — on the menu or not — with its schema and its `POLICY-DISABLED` mark where one applies. **RULE.**
+
+### ONE LOCAL BRAIN FOR MANY SESSIONS.
+
+Run one served owner per runtime and attach every other session to it: they read one graph instead of each building its own. A second plain stdio process on an owned runtime refuses to start rather than race the owner on disk. One owner can host several project brains and routes each attached client to its own by caller root. m1nd's repository — 18,078 nodes, 78,981 edges — ingests in 19 s; an exact-root refresh of a ~2.6k-node repository took 0.49 s. The graph is as fresh as your last refresh; there is no continuous watcher. **PROVEN (sandbox).**
+
+## Proof
+
+What I measured, on how much, and where it stops.
+
+| Claim | Measure | n | Caveat |
+|---|---|---|---|
+| Symbol spans on `seek` (#602, 2.0, unreleased) | Facts whose span is returned: 10→17 of 24 and 5→11 of 24; packets ~8% smaller; file ranking identical 16/16 | 16 questions, 48 facts | Two fixed question sets with a check fixed in advance; not a blind benchmark |
+| Stable ranking (#601, 2.0, unreleased) | Before the fix, two runs of one binary agreed on 14/16 and 13/16 questions; sums now run in a fixed order and ties break by node id | 16 questions | Every ranking change now runs a bracketed old/new/old comparison |
+| Blast radius with `impact` | Relation questions routed to `impact`: +1/+2 facts of 24 (11/24 against 10/24 with symbols alone) | 24 facts | Small sample; re-measure before treating it as a rule |
+| Ingest and refresh | 18,078 nodes and 78,981 edges in 19 s; exact-root refresh 0.49 s | one machine | Sandbox; the refresh was measured on a ~2.6k-node repository |
+| Standing decisions | A decisions block in `AGENTS.md` answered 5/5 by cold sessions on three hosts; the same facts through `memorize`: 0/5 | 5 per channel | This is why I do not claim memory carries decisions |
+| Orientation | `north` is the only verb agents adopted unprompted | real traffic | An observation; the benefit is not measured |
+
+Not measured yet: whether m1nd beats `grep` and plain file reads on real tasks. That experiment has not run, so I make no such claim.
+
+## Install
 
 <!-- Keep the former setup anchors working for existing links. -->
+<a id="get-started"></a>
 <a id="sixty-seconds"></a>
 <a id="quick-start"></a>
 <a id="install"></a>
@@ -46,21 +84,17 @@ export M1ND_BINARY="$HOME/.local/share/m1nd/versions/1.6.5/m1nd-mcp"
 
 To connect an MCP host, follow the [1.6.5 quick start](docs/wiki/src/tutorials/quickstart.md). Direct stdio needs an explicit workspace grant and an existing external private runtime; a shared owner has separate preparation and authority requirements. See [agent autonomy](docs/AGENT-AUTONOMY.md).
 
-### Your first useful result
-
-Ask your connected agent:
+Then ask your connected agent:
 
 > Use m1nd to orient on this repository. Find where configuration is loaded, show the relevant source locations, and tell me what you still need to verify. Do not edit files.
 
-The agent should call `north` first, then use `seek` and source inspection as needed. **Success means the response covers the correct repository and points to real code you can open.** A `reverify` verdict is expected under the current calibration containment: inspect the evidence. A missing graph or wrong-workspace binding needs recovery; an empty result may need a different query.
-
-[Quick-start troubleshooting](docs/wiki/src/tutorials/quickstart.md) covers missing binaries, host configuration, and binding errors. [Your first query](docs/wiki/src/tutorials/first-query.md) shows the actual MCP calls.
+The agent should call `north` first, then `seek` and source reads as needed. **Success means the response covers the correct repository and points to real code you can open.** A `reverify` verdict is expected under the current calibration containment: inspect the evidence. A missing graph or a wrong-workspace binding needs recovery; an empty result may need a different query. [Quick-start troubleshooting](docs/wiki/src/tutorials/quickstart.md) covers missing binaries, host configuration, and binding errors; [your first query](docs/wiki/src/tutorials/first-query.md) shows the actual MCP calls.
 
 <a id="unreleased-main"></a>
 
 ### Unreleased main: the 2.0.0 source tree
 
-Everything in this section is **unreleased**: it describes the current `main` source tree, not the published 1.6.5 artifacts. `main` adds PR580's learning-event separation, automatic-freshness guards, a leaner tree, and a reworked host installer; see the [2.0.0 changelog entry](CHANGELOG.md) and the [release proposal](docs/RELEASE-2.0.0-PROPOSAL.md). The [dependency security updates](CHANGELOG.md#security) change the source lockfile; they do not update the published 1.6.5 binaries.
+Everything in this section is **unreleased**: it describes the current `main` source tree, not the published 1.6.5 artifacts. `main` adds PR580's learning-event separation, stable ranking (#601), symbol spans on `seek` (#602), automatic-freshness guards, a leaner tree, and a reworked host installer; see the [2.0.0 changelog entry](CHANGELOG.md) and the [release proposal](docs/RELEASE-2.0.0-PROPOSAL.md). The [dependency security updates](CHANGELOG.md#security) change the source lockfile; they do not update the published 1.6.5 binaries.
 
 A version string alone does not establish which changes a binary contains, so select an exact `main` revision and use its matching wrapper and native runtime. `m1nd-mcp --version` reports the commit it was built from.
 
@@ -92,41 +126,25 @@ git clone https://github.com/maxkle1nz/m1nd.git
 cd m1nd
 cargo build --release -p m1nd-mcp
 ./target/release/m1nd-mcp --version
-```
-
-Place `./target/release/m1nd-mcp` on your `PATH` (for example `~/.local/bin/m1nd-mcp`) or pass `--binary /path/to/m1nd-mcp` to the installer. Verify the wrapper and native binary with:
-
-```bash
 node npm/bin/m1nd.js version
 node npm/bin/m1nd.js doctor
 ```
 
-The commands below use the checkout's own wrapper, `node npm/bin/m1nd.js`. Until a 2.0.0 package is published, `npx @maxkle1nz/m1nd` resolves to 1.6.5, which does not include the installer changes described here.
+Place `./target/release/m1nd-mcp` on your `PATH` or pass `--binary /path/to/m1nd-mcp`. The commands below use the checkout's own wrapper, `node npm/bin/m1nd.js`. Until a 2.0.0 package is published, `npx @maxkle1nz/m1nd` resolves to 1.6.5, which does not include the installer changes described here.
 
 <a id="host-setup"></a>
 
 #### Host setup with the 2.0.0 installer
 
-Use `hosts status`, `hosts plan` (read-only), and `hosts apply` (dry-run unless `--yes` is passed):
+`hosts status` and `hosts plan` are read-only; `hosts apply` is a dry run unless you pass `--yes`:
 
 ```bash
-# Inspect current host wiring and preview changes without editing files
 node npm/bin/m1nd.js hosts status --host claude --project ~/src/my-repo
 node npm/bin/m1nd.js hosts plan   --host claude --project ~/src/my-repo --binary /path/to/m1nd-mcp
-
-# Apply skills, MCP config, and host-owned hooks
 node npm/bin/m1nd.js hosts apply  --host claude --project ~/src/my-repo --binary /path/to/m1nd-mcp --yes
 ```
 
-Pass `--no-skills`, `--no-config`, or `--no-hooks` to skip individual steps. Every host config write is atomic; existing config files are backed up under `~/.m1nd/backups/` with private `0700`/`0600` permissions on Unix. MCP `env` values are kept out of host scoping and status output.
-
-| Host (`--host`) | Skills / agent pack | MCP config target | Hooks & doctrine |
-|---|---|---|---|
-| **Claude Code** (`claude`) | Global `~/.claude/skills/` (`m1nd-first`, `m1nd-guardian`, `m1nd-operator`) | `<project>/.mcp.json` (`~/.claude.json` is **never modified**; Claude resolves `local > project (.mcp.json) > user`, so only a local project-scope entry in `~/.claude.json` hides `.mcp.json` — remove it with `claude mcp remove m1nd -s local`) | Doctrine → `<project>/.claude/CLAUDE.md`. `SessionStart` hook for `~/.claude/settings.json` is **printed** to paste manually, never written. |
-| **Codex** (`codex`) | `$CODEX_HOME/skills/` (honors `CODEX_HOME`, default `~/.codex`; `hosts status` detects outdated skills) | `$CODEX_HOME/config.toml` (`[mcp_servers.m1nd]`) | Doctrine → `<project>/AGENTS.md`. `SessionStart` hook written to `$CODEX_HOME/hooks.json` (enable `[features] hooks = true` in `config.toml`). |
-| **Antigravity** (`antigravity`) | Plugin at `~/.gemini/config/plugins/m1nd/` (`plugin.json` + `skills/`; refuses symlinks or foreign directories) | Global `~/.gemini/config/mcp_config.json` | Doctrine → `~/.gemini/GEMINI.md` (shared with Gemini CLI). No session-start hook. |
-
-Other hosts (`gemini`, `generic`, and the hosts listed in [docs/HOST-INTEGRATION-MATRIX.md](docs/HOST-INTEGRATION-MATRIX.md)) are also supported. Active hosts must be restarted or reconnected after config changes; verify the binding in-session by calling `trust_selftest` or `session_handshake`.
+The installer writes skills, MCP config, and host-owned hooks for Claude Code (`claude`), Codex (`codex`), and Antigravity (`antigravity`); pass `--no-skills`, `--no-config`, or `--no-hooks` to skip a step. Every config write is atomic, and existing files are backed up under `~/.m1nd/backups/` with private `0700`/`0600` permissions on Unix. For Claude Code it writes `<project>/.mcp.json`, never modifies `~/.claude.json`, and prints the `SessionStart` hook for you to paste instead of writing it. Exact targets for every host are in the [host integration matrix](docs/HOST-INTEGRATION-MATRIX.md). Restart or reconnect the host after a change, then verify the binding in-session with `trust_selftest` or `session_handshake`.
 
 <a id="first-use"></a>
 
@@ -134,45 +152,13 @@ Other hosts (`gemini`, `generic`, and the hosts listed in [docs/HOST-INTEGRATION
 
 A fresh repository needs a graph before retrieval works:
 
-- **Direct stdio with an explicit workspace grant:** when a host launches `m1nd-mcp --stdio --no-gui` with `M1ND_WORKSPACE_ROOT=~/src/my-repo` and a private writable runtime, startup prepares the empty bound graph automatically (see [docs/AGENT-AUTONOMY.md](docs/AGENT-AUTONOMY.md)).
-- **Explicit human birth (for a shared or pre-created runtime):** run once in a terminal yourself:
-  ```bash
-  node npm/bin/m1nd.js init --birth ~/src/my-repo --binary /path/to/m1nd-mcp
-  ```
-- **Host-free CLI probe:** run a one-shot query without configuring an IDE:
-  ```bash
-  node npm/bin/m1nd.js agent first-minute --repo ~/src/my-repo \
-    --binary /path/to/m1nd-mcp --query "where is configuration loaded?" --json
-  ```
-  Add `--no-attach --state-dir /path/to/private-cache` (outside the repository) to force an isolated cache; `agent scope` previews paths without writing. See [storage selection and sandbox limits](docs/AGENT-AUTONOMY.md#explicit-storage-in-an-already-writable-workspace-unreleased-cli); this grants no permissions and does not migrate existing memory.
-
-Start every task with `north`, narrow candidates with `seek` or `search`, read code with `surgical_context` or `view`, and inspect blast radius with `impact` before editing:
-
-- **`north`** — one-call orientation returning focus nodes, bounded source excerpts (up to 3 files, 2,000 chars by default, `code_budget_chars` to widen), binding trust, prior memory, a suggested next move, and `honest_gaps`.
-- **`seek`** — structural + semantic candidate retrieval with an explicit trust envelope (`reverify` / `unprovable`) and sufficiency signal.
-- **`impact`** — inspect structural neighbors of a node before changing it.
-
-On `main`, `tools/list` advertises a small **core menu of 15 tools** by default (`M1ND_TOOL_TIER=core` or unset):
-`north`, `memorize`, `boot_memory`, `ingest`, `seek`, `search`, `view`, `surgical_context`, `impact`, `health`, `trust_selftest`, `session_handshake`, `recovery_playbook`, `doctor`, `help`.
-
-- `M1ND_TOOL_TIER=investigate` advertises **20 tools** (the 15 core tools plus 5 session-local graph snapshot tools: `lock_create`, `lock_watch`, `lock_diff`, `lock_rebase`, `lock_release`).
-- `M1ND_TOOL_TIER=full` advertises all **147 registered tools**.
-- `help` catalogs the full 147-tool registry at every tier. Unlisted tools remain callable by name when your host permits calling tools outside `tools/list`.
-
-<a id="memory-and-freshness"></a>
-
-#### Memory and freshness on main
-
-- **`memorize`** stores durable claims with repo-relative evidence paths in the runtime's `agent-memory` sidecar. `north` and `boot_memory` recall them with author and real age (absent when unknown, never faked).
-- **Isolated CLI freshness:** Only when reusing the automatic isolated cache does the agent CLI run `ingest {mode: "refresh"}` before retrieval. The cache is keyed by canonical worktree root + Git branch + `HEAD` and reverifies root/branch/`HEAD` at query boundaries; owned memory is prepared alongside code before the 60% shrink guard ([docs/AUTOMATIC-GRAPH-FRESHNESS.md](docs/AUTOMATIC-GRAPH-FRESHNESS.md), [docs/REFRESH-OWNED-MEMORY.md](docs/REFRESH-OWNED-MEMORY.md)).
-- **Attached-owner freshness:** Attached-owner freshness follows the owner's own semantics. On a live owner, an agent can refresh an already-declared root with `ingest {mode: "refresh"}` from that exact root.
-- **Explicit boundaries:** refresh runs on invocation (there is no continuous code watcher); boundary checks are not an atomic filesystem snapshot (`atomic_snapshot: false`, `working_tree_contents: not_attested_by_identity`); restored claims carry `claim_origin: not_attested` and `claims_freshness: not_revalidated` — verify claims against current source before acting.
+- **Direct stdio with an explicit workspace grant:** when a host launches `m1nd-mcp --stdio --no-gui` with `M1ND_WORKSPACE_ROOT=~/src/my-repo` and a private writable runtime, startup prepares the empty bound graph automatically (see [agent autonomy](docs/AGENT-AUTONOMY.md)).
+- **Explicit human birth (for a shared or pre-created runtime):** run once in a terminal yourself: `node npm/bin/m1nd.js init --birth ~/src/my-repo --binary /path/to/m1nd-mcp`. An agent offers this command; it never runs it.
+- **Host-free CLI probe:** `node npm/bin/m1nd.js agent first-minute --repo ~/src/my-repo --binary /path/to/m1nd-mcp --query "where is configuration loaded?" --json`. Add `--no-attach --state-dir /path/to/private-cache` (outside the repository) to force an isolated cache. See [storage selection and sandbox limits](docs/AGENT-AUTONOMY.md#explicit-storage-in-an-already-writable-workspace-unreleased-cli).
 
 <a id="multiple-sessions-on-one-brain"></a>
 
-#### Multiple sessions on one brain
-
-To share one live graph and memory across multiple agents or editor windows, run **one served owner** and attach every session to it:
+#### Many sessions, one owner
 
 ```bash
 # 1. Start one persistent owner on loopback (default port 1337; drop --no-gui for the web UI)
@@ -182,49 +168,59 @@ m1nd-mcp --serve --no-gui --port 1337 --runtime-dir /path/to/runtime
 m1nd-mcp --attach auto --stdio
 ```
 
-- `--attach auto` loads no graph, builds no engines, and takes no writer lease. It asks the instance registry two questions in order: first for a live serve owner matching this `runtime_root`, and failing that for a live serve owner whose declared ingest roots cover the caller's repo (resolving git worktrees to their main repo and refusing if multiple owners match). Use `m1nd-mcp --discover-owner` to inspect that decision as JSON, or override with `--attach http://127.0.0.1:1337 --stdio` / `M1ND_ATTACH_URL`.
-- **Single-writer rule:** a second plain `m1nd-mcp --stdio` process targeting an already-owned `runtime_root` **refuses to start** (`runtime_root is already owned`) and exits nonzero instead of racing on disk. Use `--attach auto` to share a live owner, or `--read-only` (`M1ND_READ_ONLY=1`) for lease-free read-only queries.
-
-See [docs/deployment.md](docs/deployment.md) for `launchd` and `systemd` service templates.
-
-<a id="limits"></a>
-
-#### Limits on main
-
-- **Extraction is approximate.** `m1nd-ingest` ships 5 manual extractors (Python, TypeScript/JavaScript, Rust, Go, Java) and 22 tree-sitter languages in the default Tier 2 build (14 Tier 1 + 8 Tier 2), plus a generic `contains`-only fallback. It is not a compiler semantic model: macros, dynamic dispatch, and external imports stay unresolved, and Python call extraction covers a conservative plain same-module subset.
-- **Calibration is contained.** All v1 calibration rows are unqualified evidence ([docs/CALIBRATION-QUALIFICATION.md](docs/CALIBRATION-QUALIFICATION.md)), as in published 1.6.5. Prediction abstains and `seek` stays at `reverify` or `unprovable`; running calibration does not enable `act`. Direct proof (source, compiler, tests) remains the final truth.
-- **Learning feedback is relevance-only.** `learn(correct|wrong)` adjusts graph relevance weights only — it records no defects, false alarms, observed co-change, or automatic antibodies ([docs/LEARNING-EVENT-SEMANTICS.md](docs/LEARNING-EVENT-SEMANTICS.md)). Ambiguous `partial` feedback refuses without mutation; zero strength is a no-op; public learning and calibration authority floors remain blocked. This change is absent from sealed 1.6.5.
-- **Generic `ingest` is policy-disabled.** `ingest` with `mode: "replace"` or `"merge"` refuses for every client, and the published schema carries neither `project_root` nor `allow_overlap`. Only exact-root `ingest {mode: "refresh"}` is callable by an agent; creating a brain on a shared runtime requires the human terminal command `m1nd init --birth <repo>`.
-- **Local is not remote-authenticated.** `--serve` binds `127.0.0.1` only and refuses non-loopback binds (even with legacy `--allow-remote`). Loopback does not authenticate other same-UID local processes; see [SECURITY.md](SECURITY.md).
-- **Optional embeddings fetch a local model.** The default `embed` feature loads `model2vec-rs` (`potion-base-8M`, ~29 MB, fetched and cached on first use, with trigram fallback if unavailable). Build without it using `--no-default-features --features serve`.
-- **Not yet in this 2.0.0 tree:** legacy brain upgrade/rollback and signed 2.0.0 release/updater artifacts are not yet qualified or published.
+`--attach auto` loads no graph and takes no writer lease. It looks first for a live owner of the same runtime root, then for one whose declared roots cover the caller's repository, resolving git worktrees to their main repository and refusing when several owners match. `m1nd-mcp --discover-owner` prints that decision as JSON; `--attach http://127.0.0.1:1337 --stdio` or `M1ND_ATTACH_URL` overrides it. Do not export `M1ND_WORKSPACE_ROOT` or the other `*_ROOT` variables globally: they override the working directory and route every session to one project. Service templates for `launchd` and `systemd` are in [deployment](docs/deployment.md).
 
 ## What to try next
 
 | Task | Start with | Check before acting |
 |---|---|---|
-| Understand unfamiliar code | `north` → `seek` → `surgical_context` | Open the returned source; check the workspace binding and trust envelope. |
-| Plan a cross-file change | `impact` and `why` on a returned node | Confirm callers and imports with source/compiler tooling; unresolved edges are gaps. |
-| Resume an investigation | `north`, `boot_memory`, or `trail_resume` | Review evidence, author, age, and any stale flags before reusing a claim. |
-| Preserve a verified finding | `memorize` with repo-relative evidence paths | Store what you actually verified, not an agent's untested conclusion. |
-| Coordinate parallel agents | One served owner and attached clients | Treat overlap notices as a request to coordinate; they do not prevent edits. |
+| Understand unfamiliar code | `north` → `seek` → open the returned span | Is the graph bound to this repository? Read `honest_gaps`. |
+| Find where a behavior lives | `seek` with a plain-language question | Open the symbol span. A top score near 0.4 with unrelated hits usually means the concept is absent; confirm with a literal `search`. |
+| Plan a cross-file change | `impact` with `direction: "reverse"` on a function | Confirm callers with the compiler, tests, or a literal `search`; unresolved edges are gaps. |
+| Check that the graph is current | `health` once, then `ingest {"mode": "refresh"}` from the exact declared root | Compare `git rev-parse HEAD` with the commit you last ingested. |
+| Find a verb that is not on the menu | `help` with `tool_name` | Read its `POLICY-DISABLED` mark before planning around it. |
 
-See [worked examples](EXAMPLES.md), [use cases](docs/use-cases.md), and the [tool reference](docs/wiki/src/api-reference/overview.md). The default tool menu is deliberately small. `help` discovers the full registry; `M1ND_TOOL_TIER=full` expands the advertised menu. Published 1.6.5 also offers `M1ND_TOOL_TIER=investigate`: the core plus five session-local snapshot tools. See the [beginner and advanced recipe](docs/GRAPH-CHANGE-TRACKING.md). A listed or callable tool may still require authority the current session does not have.
+See [worked examples](EXAMPLES.md), [use cases](docs/use-cases.md), and the [tool reference](docs/wiki/src/api-reference/overview.md). Published 1.6.5 also offers `M1ND_TOOL_TIER=investigate`: the core plus five session-local snapshot tools ([recipe](docs/GRAPH-CHANGE-TRACKING.md)). A listed or callable tool may still require authority the current session does not have.
 
-## What it does and does not prove
+## For agents
 
-These boundaries hold for published 1.6.5 and for `main`; the [main-only limits](#limits) add detail for the source tree.
+If you are an agent, this section is yours. The full manual is [docs/AGENT-BEST-PRACTICES.md](docs/AGENT-BEST-PRACTICES.md); every practice in it carries PROVEN, OBSERVED, or RULE. The short version:
 
-- **Best fit:** structural navigation, change preparation, and continuity across repeated work. For a tiny edit or exact string lookup, a file read or `rg` may be enough.
-- **Extraction is approximate.** Language support varies, macro-generated and dynamic references can be missed, and external imports may remain unresolved. A graph is not a compiler's semantic model.
-- **Trust is conditional.** Published 1.6.5 and current `main` treat all v1 calibration rows as [unqualified evidence](docs/CALIBRATION-QUALIFICATION.md): prediction abstains and the seek envelope stays at `reverify` or `unprovable`, while scores and rankings remain available. Running calibration does not enable `act`. Use source, compiler, tests, and runtime checks for your change. The [clock repair](docs/LEARNING-TIME-UNITS.md) does not establish statistical quality.
-- **Writes have extra boundaries.** Preview/commit tools, proof permits, and authority checks are separate from read-only retrieval. Graph/static verification is not a substitute for executed tests. See [write reference](docs/wiki/src/api-reference/lifecycle.md).
-- **Local does not mean authenticated.** The served owner refuses non-loopback binds; loopback alone does not authenticate other local processes. See [deployment](docs/deployment.md) and [security](SECURITY.md).
+1. Pass a stable, descriptive `agent_id` on every call — `<host>-<role>`, not a random id.
+2. `north` to orient, `seek` for where and how, `impact` with `direction: "reverse"` for who calls. Open the span before you quote it: m1nd locates, your file read confirms.
+3. Call `health` once per session, not per question. When `HEAD` moved, refresh from the exact declared root.
+4. Read the envelope. `reverify` means open the source. `absent` and `abstain` are answers.
+5. Before you conclude a capability is missing, ask `help` with `tool_name`. Ignore suggestions that name `learn`, `ghost_edges`, `audit`, or `ingest` with merge or replace: they refuse every generic client.
+6. Put standing decisions in the agent file your host always loads (`AGENTS.md`, `CLAUDE.md`), not in `memorize`: 5/5 against 0/5.
 
-## Workspace and further reading
+Host packs ship in [skills/](skills/) (`m1nd-first`, `m1nd-guardian`, `m1nd-operator`); setup for coding agents is in the [agent installation guide](llms-install.md).
 
-Five Rust workspace crates (`m1nd-core`, `m1nd-ingest`, `m1nd-mcp`, `m1nd-control`, `m1nd-runnerd`) plus the embedded web UI (`m1nd-ui/`), npm wrapper (`npm/`), and agent skills (`skills/`).
+## Status — honest
 
-- [Documentation index](docs/README.md) · [Examples](EXAMPLES.md) · [Host integration matrix](docs/HOST-INTEGRATION-MATRIX.md)
-- [Agent installation guide](llms-install.md) · [Automatic freshness contract](docs/AUTOMATIC-GRAPH-FRESHNESS.md) · [Deployment](docs/deployment.md)
-- [Contributing](CONTRIBUTING.md) · [Changelog](CHANGELOG.md) · [Security](SECURITY.md) · [License](LICENSE) (MIT)
+<a id="what-it-does-and-does-not-prove"></a>
+<a id="limits"></a>
+<a id="memory-and-freshness"></a>
+
+- **Published:** 1.6.5 — GitHub/native, crates.io, and npm `latest` — from the commit named in [Install](#install).
+- **Unreleased:** everything on `main` after it, including PR580's learning-event separation, #601, #602, and the 2.0.0 host installer. Versions on `main` say 2.0.0; no 2.0.0 artifact, crate, or npm package is published or signed, and legacy brain upgrade/rollback is not qualified.
+- **Not proven:** that m1nd beats `grep` on real tasks (the experiment has not run); that `north` helps beyond being adopted; that the `impact` gain holds beyond a small sample; that memory carries decisions (measured 0/5).
+- **Calibration stays contained:** all v1 calibration rows are [unqualified evidence](docs/CALIBRATION-QUALIFICATION.md); prediction abstains; `seek` stays at `reverify` or `unprovable`; running calibration does not enable `act`. Source, compiler, and tests remain the final truth.
+- **The authority plane is not callable by agents:** verbs above the generic floor — `learn`, `ghost_edges`, `apply`, the daemon and auto-ingest controls, generic `ingest` with replace or merge, and others — refuse every generic MCP or REST caller, and no payload lifts that. Creating a brain on a shared runtime is the human terminal command `m1nd init --birth <repo>`. So I make no claim that m1nd learns from use — the `learn` feedback verb sits behind the floor — and `predict` answers from structure alone: git co-change needs `ghost_edges`.
+- **Freshness is on request:** the graph is as fresh as its last refresh, with no continuous watcher. A git worktree binds to its main repository's brain, so a worktree on another commit reads main's lines; re-read spans in your own checkout.
+- **Extraction is approximate:** dedicated extractors and tree-sitter grammars, not a compiler. Macros, dynamic dispatch, and external imports stay unresolved.
+- **Local is not authenticated:** `--serve` binds loopback only and refuses anything else; loopback does not authenticate other processes of the same user. See [SECURITY.md](SECURITY.md).
+- **What I do not claim:** graph visualization (the web UI is a tree and panels), multi-agent coordination, autonomous editing, security analysis. Some verbs in those areas exist in the registry; none is on the menu, and none is proven.
+- **Stability contract:** the 15-verb menu, `help` included, is the stable surface. Hidden verbs stay reachable by name through `help` but are unstable: one may leave in a minor release, with a CHANGELOG note.
+
+## Continue from here
+
+MIT licensed — fork it. The [documentation index](docs/README.md), [examples](EXAMPLES.md), and [changelog](CHANGELOG.md) go deeper; contributions follow [CONTRIBUTING.md](CONTRIBUTING.md), and security reports follow [SECURITY.md](SECURITY.md). Found a wrong answer? Open an issue with the call, the response, and what the source says. That is the proof I need.
+
+The workspace: five Rust crates (`m1nd-core`, `m1nd-ingest`, `m1nd-mcp`, `m1nd-control`, `m1nd-runnerd`), the embedded web UI (`m1nd-ui/`), the npm wrapper (`npm/`), and the agent skills (`skills/`).
+
+---
+<p align="center">
+  <img src=".github/m1nd-mark-deviance-icon.svg" width="44" alt="m1nd mark" />
+  <br>
+  <sub>An <b>m1nd</b> graph by <b>DEViance Intelligence</b> — <i>beyond the edge</i> · by <a href="https://github.com/maxkle1nz">Max Kle1nz</a></sub>
+</p>
