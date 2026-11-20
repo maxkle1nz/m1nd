@@ -134,6 +134,10 @@ this loop by default:
      unresolved (guessed/dropped) edge; verify that edge before relying on it.
    - `seek` carries a **`trust_envelope`** + a sufficiency stop-signal —
      `sufficient` means stop gathering; `gathering`/`saturated` mean widen.
+   - `seek` rows are lean by default: file, line span, `symbols`, score.
+     `detail: true` adds each row's diagnostics (`connections`,
+     `heuristic_signals`, `score_breakdown`) without changing ids, order, or
+     scores — ask for it only to inspect a ranking.
    - **`trust_band: insufficient_evidence` means NO evidence**, not medium risk —
      the honest cold-start answer.
 4. Read the compact runtime envelope on retrieval responses. Empty results are
@@ -144,6 +148,13 @@ this loop by default:
    repo.
 6. Before edits or reviews, run `impact`, `validate_plan`, and usually
    `surgical_context_v2`.
+   Ask `impact` about a function, never a whole file: `causal_chains` comes
+   capped at the strongest 20 (`causal_chains_truncated` says when; raise it
+   with `max_causal_chains`). Before you call a change done, read `impact`'s
+   `co_change` for each file you touched: up to five files that usually
+   changed in the same commits — mostly docs, manifests, and release
+   metadata, not hidden code coupling. Check every partner outside your
+   diff. Absent means no recorded history, not proof that nothing moves.
 7. Close warmer than you found it: `memorize` every durable finding (with
    `confidence` and repo-relative `evidence` paths) so the next session starts
    ahead. Generic `learn` stays authority-blocked; its internal `correct`/`wrong`
@@ -471,8 +482,9 @@ paths, duplication, refactor seams, or runtime heat, check whether the agent CLI
 returned `capability_suggestions.family_id=retrobuilder`. If it did, use only
 the matching tools, then stop and prove directly:
 
-- hidden co-change or files that "move together" -> `timeline` on the files,
-  then `impact` (the co-change builder `ghost_edges` sits above the generic
+- files that "move together" -> `impact`'s `co_change` (files usually changed
+  in the same commits: mostly docs, manifests, metadata), then `timeline` on
+  the files (the matrix builder `ghost_edges` sits above the generic
   authority floor)
 - untrusted input, sensitive data, auth, privacy, or trust-boundary review ->
   `taint_trace`, then `trust`, `type_trace`, or `validate_plan`

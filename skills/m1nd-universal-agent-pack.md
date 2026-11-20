@@ -228,7 +228,9 @@ this loop by default:
    yes. `why` carries a `closure` verdict (`blocked` = the path rests on an unresolved
    edge); `seek` carries a `trust_envelope` + a sufficiency signal (`sufficient`
    = stop gathering); `trust_band: insufficient_evidence` means NO evidence, not
-   medium risk.
+   medium risk. `seek` rows are lean by default (file, line span, `symbols`,
+   score); `detail: true` adds per-row diagnostics without changing ids, order,
+   or scores — ask for it only to inspect a ranking.
 4. Read the runtime envelope on retrieval responses. Empty result arrays are
    not final truth until workspace binding, graph identity, and recovery state
    are coherent.
@@ -237,6 +239,13 @@ this loop by default:
    repo.
 6. Before edits or reviews, run `impact`, `validate_plan`, and usually
    `surgical_context_v2`.
+   Ask `impact` about a function, never a whole file: `causal_chains` comes
+   capped at the strongest 20 (`causal_chains_truncated` says when; raise it
+   with `max_causal_chains`). Before you call a change done, read `impact`'s
+   `co_change` for each file you touched: up to five files that usually
+   changed in the same commits — mostly docs, manifests, and release
+   metadata, not hidden code coupling. Check every partner outside your
+   diff. Absent means no recorded history, not proof that nothing moves.
 7. Close warmer than you found it: `memorize` every durable finding (with
    `confidence` and repo-relative `evidence` paths). Generic `learn` stays
    authority-blocked; its internal `correct`/`wrong` path changes relevance
@@ -539,8 +548,10 @@ situation.
 - Topic, subsystem, or neighborhood -> `activate`
 - Unfamiliar repo -> `north` (or `panoramic` for module-level risk alone)
 - Stacktrace or runtime error text -> `trace`
-- Risky change -> `impact`, `predict`, `validate_plan`, then usually
-  `surgical_context_v2`
+- Risky change -> `impact` (on a function), `predict`, `validate_plan`, then
+  usually `surgical_context_v2`
+- Calling a change done -> `impact`'s `co_change` on each touched file; check
+  partners outside your diff
 - Deep architecture/risk -> RETROBUILDER. Use `taint_trace` for trust-boundary
   or sensitive flow, `twins` for structural duplication, and `refactor_plan` for
   extraction communities; `timeline` reads a file's history. (`ghost_edges` and
@@ -620,10 +631,13 @@ truth with local files until the host binding refreshes.
 Before risky edits:
 
 1. Use `seek` or `activate` to find the connected surface.
-2. Use `impact` for blast radius.
+2. Use `impact` on a function for blast radius (`causal_chains` capped at 20;
+   `max_causal_chains` raises it).
 3. Use `validate_plan` for missing work.
 4. Use `surgical_context_v2` for compact edit context.
 5. Run compiler/tests/runtime checks for execution truth.
+6. Before calling the change done, read `impact`'s `co_change` for each touched
+   file and check every partner outside your diff.
 
 `m1nd` complements the compiler, test runner, LSP, debugger, security scanner,
 and local file truth. It does not replace them.
