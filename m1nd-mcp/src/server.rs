@@ -6107,13 +6107,10 @@ fn handle_north(
             "Binding is not full trust ({verdict}) — treat retrieval as orientation only and verify final truth against local files; see recovery_playbook for the repair."
         ));
     }
-    if let Some(dropped) = state
-        .ingest_contribution_gaps
-        .as_ref()
-        .and_then(|gaps| gaps["contributions_dropped"].as_u64())
-    {
+    let ingest_marks = crate::tools::ingest_contribution_marks_report(&state.graph.read());
+    if let Some(marked) = ingest_marks.and_then(|marks| marks["marked_node_count"].as_u64()) {
         honest_gaps.push(format!(
-            "The last code ingest dropped {dropped} static contribution(s) it could not admit instead of aborting — those definitions may be missing or folded into their first occurrence; health.ingest_gaps names them."
+            "{marked} graph node(s) carry m1nd:ingest:contribution_dropped — an ingest dropped static contribution(s) there instead of refusing the run, so definitions may be missing or folded into their first occurrence; health.ingest_gaps names them."
         ));
     }
     // Ground-truth count of the durable L1GHT store on disk. A beat that surfaced
@@ -15185,8 +15182,9 @@ mod tests {
         .expect("north should succeed")
     }
 
-    /// A code ingest that dropped contributions instead of aborting says so in
-    /// `north`'s honest gaps; a clean one adds no line.
+    /// Nodes an ingest marked for a dropped contribution are named in
+    /// `north`'s honest gaps, read from the graph itself; an unmarked graph
+    /// adds no line.
     #[test]
     fn north_names_dropped_ingest_contributions_as_an_honest_gap() {
         let (_temp, mut state) = build_state_populated(false);
@@ -15197,16 +15195,21 @@ mod tests {
                 .iter()
                 .any(|gap| {
                     gap.as_str().is_some_and(|line| {
-                        line.starts_with("The last code ingest dropped 3 static contribution(s)")
+                        line.starts_with("2 graph node(s) carry m1nd:ingest:contribution_dropped")
                     })
                 })
         };
         assert!(!names_drop(&bell_north_call(&mut state)));
 
-        state.ingest_contribution_gaps = Some(serde_json::json!({
-            "schema": "m1nd-ingest-contribution-gaps-v0",
-            "contributions_dropped": 3,
-        }));
+        {
+            let mut graph = state.graph.write();
+            for idx in 0..2u32 {
+                graph.add_node_tags(
+                    m1nd_core::types::NodeId::new(idx),
+                    &[m1nd_ingest::INGEST_CONTRIBUTION_DROPPED_TAG],
+                );
+            }
+        }
         let out = bell_north_call(&mut state);
         assert!(names_drop(&out), "north must name the drop: {out}");
     }

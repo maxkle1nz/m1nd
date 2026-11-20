@@ -253,8 +253,8 @@ pub struct SeekOutput {
     /// file's best eligible symbols with their line spans (see
     /// [`SeekResultEntry::symbols`]); the rows, their order and their scores
     /// are the same with or without them. A `file_group` row's `intent_summary`
-    /// leaves out `m1nd:edge:*` edge-resolution tags, and so does every row's
-    /// short default intent line.
+    /// leaves out the `m1nd:edge:*` and `m1nd:ingest:*` graph diagnostic tags,
+    /// and so does every row's short default intent line.
     pub result_granularity: String,
     /// Mechanical query-entity presence receipt. Always present.
     pub grounding: SeekGrounding,
@@ -363,12 +363,14 @@ pub struct SeekResultEntry {
     pub heuristic_signals: Option<HeuristicSignals>,
     /// Heuristic intent summary: `label (type) [tags]`. By default this is the
     /// short intent line from [`Self::intent_line`]. With `detail: true` it is
-    /// the full summary: on `file_group` rows the `m1nd:edge:*` edge-resolution
-    /// diagnostics are left out of the tags, on `node` rows every tag is kept.
+    /// the full summary: on `file_group` rows the `m1nd:edge:*` and
+    /// `m1nd:ingest:*` graph diagnostics are left out of the tags, on `node`
+    /// rows every tag is kept.
     pub intent_summary: String,
     /// The short intent line a default row sends as `intent_summary`: the same
-    /// `label (type) [tags]` shape without `m1nd:edge:*` tags, cut on a
-    /// character boundary to at most 120 characters (a cut line ends in `…`).
+    /// `label (type) [tags]` shape without `m1nd:edge:*` or `m1nd:ingest:*`
+    /// tags, cut on a character boundary to at most 120 characters (a cut line
+    /// ends in `…`).
     /// Computed with the row so that `token_budget` packing, which measures
     /// the full row, keeps the same rows with or without `detail`.
     #[serde(skip)]

@@ -510,9 +510,11 @@ pub const INGEST_CONTRIBUTION_GAP_SAMPLE_LIMIT: usize = 32;
 
 /// One static contribution an ingest set aside instead of refusing the run.
 ///
-/// A single source must never take down the graph of every other source, so a
-/// contribution the graph cannot admit is dropped, counted in
-/// [`IngestStats::contributions_dropped`] and named here — never silently.
+/// A conflicting or invalid static contribution from one source no longer
+/// refuses the ingest of every other source: it is dropped, counted in
+/// [`IngestStats::contributions_dropped`], named here and marked in the graph
+/// with [`INGEST_CONTRIBUTION_DROPPED_TAG`] — never silently. Other failures
+/// (unreadable sources, extractor errors, timeouts) still refuse the run.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct IngestContributionGap {
     /// `conflicting_node_contribution`, `conflicting_edge_contribution` or
@@ -525,6 +527,13 @@ pub struct IngestContributionGap {
     /// What was kept instead, in one line.
     pub detail: String,
 }
+
+/// Graph node tag left by a dropped static contribution, on the node that kept
+/// the contested id (or the edge's source node) and on the dropping source's
+/// file node. It lives in the graph, so the notice survives a restart, an
+/// evicted brain and federation; `health.ingest_gaps` and `north` read it back.
+/// A clean re-ingest of those sources resets the tags.
+pub const INGEST_CONTRIBUTION_DROPPED_TAG: &str = "m1nd:ingest:contribution_dropped";
 
 impl IngestStats {
     /// Count one dropped contribution and name it while the sample has room.
@@ -806,6 +815,9 @@ struct StaticContributionFence {
     keep_nodes: Vec<bool>,
     keep_edges: Vec<bool>,
     invalid_nodes: u64,
+    /// External ids to tag with [`INGEST_CONTRIBUTION_DROPPED_TAG`] once the
+    /// graph holds them.
+    marks: BTreeSet<String>,
 }
 
 /// The static-contribution fence of a full ingest.
@@ -825,7 +837,8 @@ struct StaticContributionFence {
 ///
 /// It used to refuse the whole run instead: one markdown guide repeating a Go
 /// example left an entire repository — and a first-time launcher birth — with
-/// no graph at all. One source must never take down every other source.
+/// no graph at all. Every drop is also marked in the graph (`marks`) so the
+/// partial picture is never silent, in this process or the next.
 fn reconcile_static_contributions<P>(
     nodes: &[(String, String, extract::ExtractedNode)],
     edges: &[(String, extract::ExtractedEdge)],
@@ -852,6 +865,7 @@ where
         keep_nodes: Vec::with_capacity(nodes.len()),
         keep_edges: Vec::with_capacity(edges.len()),
         invalid_nodes: 0,
+        marks: BTreeSet::new(),
     };
     let mut node_contributions = BTreeMap::<&str, (&str, NodeContribution)>::new();
     for (source_key, file_id, node) in nodes {
@@ -859,6 +873,7 @@ where
         if !is_valid_external_id(&node.id) {
             fence.keep_nodes.push(false);
             fence.invalid_nodes += 1;
+            fence.marks.insert(file_id.clone());
             stats.record_contribution_gap(IngestContributionGap {
                 kind: "invalid_node_id",
                 source_key: source_key.clone(),
@@ -894,6 +909,8 @@ where
                     continue;
                 }
                 fence.keep_nodes.push(false);
+                fence.marks.insert(node.id.clone());
+                fence.marks.insert(file_id.clone());
                 stats.record_contribution_gap(IngestContributionGap {
                     kind: "conflicting_node_contribution",
                     source_key: source_key.clone(),
@@ -927,6 +944,10 @@ where
                     continue;
                 }
                 fence.keep_edges.push(false);
+                fence.marks.insert(edge.source.clone());
+                if let Some(file_id) = build_file_external_id(source_key) {
+                    fence.marks.insert(file_id);
+                }
                 stats.record_contribution_gap(IngestContributionGap {
                     kind: "conflicting_edge_contribution",
                     source_key: source_key.clone(),
@@ -1591,6 +1612,7 @@ impl Ingestor {
             cancellation,
         )?;
         let skipped_invalid_nodes = fence.invalid_nodes;
+        let contribution_marks = fence.marks;
         let mut all_nodes = all_nodes
             .into_iter()
             .zip(fence.keep_nodes)
@@ -1739,6 +1761,16 @@ impl Ingestor {
                         );
                     }
                 }
+            }
+        }
+
+        // Mark every dropped contribution in the graph itself, after insertion
+        // (a refresh resets retained nodes' tags above) and before the
+        // ownership audit. Clean runs mint no tag, so their graphs are unchanged.
+        for external_id in &contribution_marks {
+            cancellation.check()?;
+            if let Some(node_id) = graph.resolve_id(external_id) {
+                graph.add_node_tags(node_id, &[INGEST_CONTRIBUTION_DROPPED_TAG]);
             }
         }
 
@@ -2131,6 +2163,19 @@ mod tests {
         fs::remove_dir_all(&root).ok();
     }
 
+    /// Two `#[cfg]`-split variants of one name. Rust variant ids carry no
+    /// occurrence suffix, so this is a real contested id for the fence.
+    const CFG_SPLIT_VARIANT_SOURCE: &str = "\
+pub enum Backend {
+    #[cfg(unix)]
+    Native,
+    #[cfg(windows)]
+    Native,
+    Portable,
+}
+";
+    const CFG_SPLIT_VARIANT_ID: &str = "file::src/backend.rs::enum::Backend::Native";
+
     /// A doc that repeats one code example, shaped like a real Go web
     /// framework's binding guide: the same `type Person struct` and
     /// `func main()` appear once per fenced block.
@@ -2145,7 +2190,7 @@ type Person struct {
 }
 
 func main() {
-\troute := gin.Default()
+\troute := web.New()
 }
 ```
 
@@ -2157,7 +2202,7 @@ type Person struct {
 }
 
 func main() {
-\troute := gin.Default()
+\troute := web.New()
 }
 ```
 
@@ -2332,6 +2377,15 @@ type Person struct {
         assert_eq!(fence.keep_nodes, vec![true, true, false, false, false]);
         assert_eq!(fence.keep_edges, vec![true, true, false]);
         assert_eq!(fence.invalid_nodes, 1);
+        assert_eq!(
+            fence.marks.iter().map(String::as_str).collect::<Vec<_>>(),
+            vec![
+                "file::docs/a.md",
+                "file::docs/a.md::type::Person",
+                "file::docs/b.md"
+            ],
+            "the kept node and every dropping source's file node are marked"
+        );
         assert_eq!(stats.contributions_dropped, 4);
         let named = stats
             .contribution_gaps
@@ -2372,6 +2426,55 @@ type Person struct {
             stats.contribution_gaps.len(),
             super::INGEST_CONTRIBUTION_GAP_SAMPLE_LIMIT
         );
+    }
+
+    /// A REAL drop through the real pipeline: the Rust extractor gives enum
+    /// variants no occurrence suffix, so two `#[cfg]`-split variants of one
+    /// name contest one id. The run completes with a COMPLETE ownership
+    /// bundle, the first variant wins, the drop is counted and named, and the
+    /// graph itself carries the mark on the kept node and on the source's file
+    /// node — the notice outlives this process.
+    #[test]
+    fn a_dropped_contribution_is_counted_named_and_marked_in_a_complete_bundle() {
+        let root = temp_ingest_dir("cfg-split-variant");
+        fs::create_dir_all(root.join("src")).unwrap();
+        fs::write(root.join("src/lib.rs"), "pub mod backend;\n").unwrap();
+        fs::write(root.join("src/backend.rs"), CFG_SPLIT_VARIANT_SOURCE).unwrap();
+        let bundle = Ingestor::new(IngestConfig {
+            root: root.clone(),
+            ..IngestConfig::default()
+        })
+        .ingest_bundle();
+        fs::remove_dir_all(&root).ok();
+        let bundle = bundle.expect("a contested variant id must not abort the ingest");
+
+        assert_eq!(bundle.ownership.coverage, OwnershipCoverageV1::Complete);
+        assert_eq!(bundle.stats.contributions_dropped, 1);
+        let gap = &bundle.stats.contribution_gaps[0];
+        assert_eq!(gap.kind, "conflicting_node_contribution");
+        assert_eq!(gap.source_key, "src/backend.rs");
+        assert_eq!(gap.subject, CFG_SPLIT_VARIANT_ID);
+        assert!(gap.detail.contains("line 3"), "{}", gap.detail);
+
+        let graph = &bundle.graph;
+        let marked = |id: &str| {
+            let node = graph
+                .resolve_id(id)
+                .unwrap_or_else(|| panic!("{id} in graph"));
+            graph
+                .node_tags(node)
+                .contains(&super::INGEST_CONTRIBUTION_DROPPED_TAG)
+        };
+        assert!(marked(CFG_SPLIT_VARIANT_ID), "the kept node is marked");
+        assert!(
+            marked("file::src/backend.rs"),
+            "the source's file node is marked"
+        );
+        assert!(
+            !marked("file::src/lib.rs"),
+            "an untouched source stays clean"
+        );
+        assert!(!marked("file::src/backend.rs::enum::Backend::Portable"));
     }
 
     /// A conflict the fence resolves leaves a COMPLETE, owned graph: the first

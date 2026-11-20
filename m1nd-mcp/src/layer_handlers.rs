@@ -429,15 +429,20 @@ fn l2_file_group_symbols(
         .collect()
 }
 
-/// Prefix shared by every graph edge-resolution diagnostic tag that ingest
-/// mints (`m1nd_ingest::resolve::EDGE_UNRESOLVED_TAG`, `EDGE_AMBIGUOUS_TAG` and
-/// its targeted form). Matching the prefix keeps a future edge tag out too.
-const L2_EDGE_DIAGNOSTIC_TAG_PREFIX: &str = "m1nd:edge:";
+/// Prefixes of the graph diagnostic tags that ingest mints: edge resolution
+/// (`m1nd_ingest::resolve::EDGE_UNRESOLVED_TAG`, `EDGE_AMBIGUOUS_TAG` and its
+/// targeted form) and ingest bookkeeping
+/// (`m1nd_ingest::INGEST_CONTRIBUTION_DROPPED_TAG`). Matching the prefix keeps a
+/// future tag of either family out too.
+const L2_GRAPH_DIAGNOSTIC_TAG_PREFIXES: [&str; 2] = ["m1nd:edge:", "m1nd:ingest:"];
 
-/// Whether a node tag is a graph edge-resolution diagnostic (`m1nd:edge:*`):
-/// bookkeeping about unresolved or ambiguous edges, not a description of the node.
-fn l2_is_edge_diagnostic_tag(tag: &str) -> bool {
-    tag.starts_with(L2_EDGE_DIAGNOSTIC_TAG_PREFIX)
+/// Whether a node tag is a graph diagnostic (`m1nd:edge:*`, `m1nd:ingest:*`):
+/// bookkeeping about unresolved or ambiguous edges or dropped ingest
+/// contributions, not a description of the node.
+fn l2_is_graph_diagnostic_tag(tag: &str) -> bool {
+    L2_GRAPH_DIAGNOSTIC_TAG_PREFIXES
+        .iter()
+        .any(|prefix| tag.starts_with(prefix))
 }
 
 fn l2_bm25_terms(text: &str) -> Vec<String> {
@@ -1480,7 +1485,7 @@ pub fn handle_seek(
                 .or_else(|| l2_source_file_for_node(&graph, &node_to_ext, i));
             let described: Vec<String> = tags
                 .iter()
-                .filter(|tag| !l2_is_edge_diagnostic_tag(tag))
+                .filter(|tag| !l2_is_graph_diagnostic_tag(tag))
                 .cloned()
                 .collect();
 
@@ -1499,8 +1504,9 @@ pub fn handle_seek(
                     temporal_recency: r.trigram, // V1: trigram fills recency slot. V2: real recency.
                 }),
                 heuristic_signals: Some(r.heuristic_signals),
-                // A file-group row describes a file; edge-resolution
-                // diagnostics can run to thousands of characters there.
+                // A file-group row describes a file; graph diagnostics
+                // (`m1nd:edge:*`, `m1nd:ingest:*`) can run to thousands of
+                // characters there.
                 intent_summary: if file_group_mode {
                     l2_intent_summary(&label, nt, &described)
                 } else {

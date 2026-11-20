@@ -125,7 +125,7 @@ ten `file_group` rows), any `excerpt`, and the provenance of memory hits
 (`authored_ms_ago`, `source_agent`, `origin_brain`).
 
 - **Intent line.** The default `intent_summary` has the `label (type) [tags]` shape
-  without any `m1nd:edge:*` tag, cut on a character boundary to at most 120
+  without any `m1nd:edge:*` or `m1nd:ingest:*` tag, cut on a character boundary to at most 120
   characters. A cut line ends in `…`.
 - **Diagnostics.** With `detail: true`, each row also carries `connections` (up to five
   outgoing edges), `heuristic_signals` (the trust and tremor priors, including
@@ -194,7 +194,8 @@ span to open. There is no excerpt.
 - **When absent.** The field is omitted when a file has no eligible symbol, on rows after
   the tenth, in `"node"` granularity, and when `node_types` is `["file"]`.
 - **Summary.** With `detail: true`, a `file_group` row's `intent_summary`
-  (`label (type) [tags]`) leaves out every `m1nd:edge:*` edge-resolution tag, which can
+  (`label (type) [tags]`) leaves out every `m1nd:edge:*` and `m1nd:ingest:*` graph
+  diagnostic tag, which can
   run to thousands of characters on a file, and `"node"` rows keep every tag. Default
   rows send the short intent line instead (see above). Semantic `search` reads the full
   rows: for a narrative query, a row without an excerpt takes its `matched_line` from the

@@ -868,7 +868,7 @@ fn explicit_launcher_root_bootstraps_once_and_survives_restart() {
 fn write_repeated_example_doc(root: &Path) {
     std::fs::create_dir_all(root.join("docs")).expect("create fixture docs");
     let block = |tag: &str| {
-        format!("```go\ntype Person struct {{\n\tName string `{tag}:\"name\"`\n}}\n\nfunc main() {{\n\troute := gin.Default()\n}}\n```\n")
+        format!("```go\ntype Person struct {{\n\tName string `{tag}:\"name\"`\n}}\n\nfunc main() {{\n\troute := web.New()\n}}\n```\n")
     };
     std::fs::write(
         root.join("docs/guide.md"),
@@ -882,10 +882,10 @@ fn write_repeated_example_doc(root: &Path) {
     .expect("write repeated-example doc");
 }
 
-/// One file must never take down a whole first-time ingest. A real
-/// repository's docs repeated the same Go example in one markdown file; the
-/// launcher birth refused the WHOLE repository over it, the owner exited
-/// before `initialize`, and the agent got no m1nd at all.
+/// A repeated code example in one file must not take down a whole first-time
+/// ingest. A real repository's docs repeated the same Go example in one
+/// markdown file; the launcher birth refused the WHOLE repository over it, the
+/// owner exited before `initialize`, and the agent got no m1nd at all.
 #[test]
 fn a_doc_that_repeats_a_code_example_still_births_a_served_graph() {
     let temp = tempfile::tempdir().expect("tempdir");
@@ -921,6 +921,73 @@ fn a_doc_that_repeats_a_code_example_still_births_a_served_graph() {
         "repeated examples are distinct occurrences, not dropped contributions: {health}"
     );
     owner.shutdown();
+}
+
+/// Two `#[cfg]`-split variants of one name: Rust variant ids carry no
+/// occurrence suffix, so the second is a REAL dropped contribution.
+fn write_cfg_split_variant(root: &Path) {
+    std::fs::write(
+        root.join("src/backend.rs"),
+        "pub enum Backend {\n    #[cfg(unix)]\n    Native,\n    #[cfg(windows)]\n    Native,\n    Portable,\n}\n",
+    )
+    .expect("write cfg-split variant source");
+}
+
+fn assert_dropped_contribution_is_named(owner: &mut Owner) {
+    let health = owner.call("health", serde_json::json!({ "agent_id": AGENT }));
+    let marks = &health["ingest_gaps"];
+    assert_eq!(
+        marks["schema"], "m1nd-ingest-contribution-marks-v0",
+        "health must name the dropped contribution: {health}"
+    );
+    assert_eq!(
+        marks["marked_nodes"],
+        serde_json::json!([
+            "file::src/backend.rs",
+            "file::src/backend.rs::enum::Backend::Native"
+        ]),
+        "{health}"
+    );
+    let north = owner.call(
+        "north",
+        serde_json::json!({ "agent_id": AGENT, "task": UNIQUE_SYMBOL }),
+    );
+    let gaps = north["honest_gaps"]
+        .as_array()
+        .unwrap_or_else(|| panic!("north must carry honest_gaps: {north}"));
+    assert!(
+        gaps.iter().any(|gap| gap
+            .as_str()
+            .is_some_and(|line| line.contains("m1nd:ingest:contribution_dropped"))),
+        "north must name the dropped contribution: {gaps:?}"
+    );
+}
+
+/// A dropped contribution must never leave the graph partial in silence. The
+/// notice is a mark in the graph itself, so the NEXT process — which reuses
+/// the persisted graph without ingesting — still names it in health and north.
+#[test]
+fn a_dropped_contribution_stays_named_after_a_restart() {
+    let temp = tempfile::tempdir().expect("tempdir");
+    let workspace = temp.path().join("repo-alpha");
+    let runtime = temp.path().join("private-runtime");
+    write_fixture(&workspace, UNIQUE_SYMBOL);
+    write_cfg_split_variant(&workspace);
+    std::fs::create_dir_all(&runtime).expect("create external runtime");
+
+    let mut first = Owner::spawn(&workspace, &runtime);
+    let born = assert_symbol_is_retrievable(&mut first, &runtime);
+    assert_dropped_contribution_is_named(&mut first);
+    first.shutdown();
+
+    let mut restarted = Owner::spawn(&workspace, &runtime);
+    let reused = assert_symbol_is_retrievable(&mut restarted, &runtime);
+    assert_eq!(
+        reused.node_count, born.node_count,
+        "restart must reuse the born graph, not re-ingest it"
+    );
+    assert_dropped_contribution_is_named(&mut restarted);
+    restarted.shutdown();
 }
 
 #[test]
