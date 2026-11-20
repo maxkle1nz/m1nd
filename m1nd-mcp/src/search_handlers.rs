@@ -520,6 +520,9 @@ pub fn handle_search(state: &mut SessionState, input: SearchInput) -> M1ndResult
                 // Search does its own budget packing on the converted rows below;
                 // the delegated seek runs unbudgeted.
                 token_budget: None,
+                // The converted rows carry `heuristic_signals` and fall back to
+                // the full `intent_summary` for `matched_line`.
+                detail: true,
             };
             let seek_result = crate::layer_handlers::handle_seek(state, seek_input)?;
             let seek_candidates = seek_result.total_candidates_scanned;

@@ -86,6 +86,14 @@ pub struct SeekInput {
     /// (return the full top_k set, behavior unchanged).
     #[serde(default)]
     pub token_budget: Option<usize>,
+    /// When true, every row also carries its diagnostics (`connections`,
+    /// `heuristic_signals`, `score_breakdown`) and its full `intent_summary`,
+    /// exactly as rows were before those fields became opt-in. Default false:
+    /// a row carries what an agent acts on and a short intent line (see
+    /// [`SeekResultEntry::intent_summary`]). The rows' ids, order, scores and
+    /// count, and every field outside `results`, are the same either way.
+    #[serde(default)]
+    pub detail: bool,
 }
 
 // NOTE (MEDULLA-PRD §5.2 · pull-not-push): the memory-tier selector `tier`
@@ -245,7 +253,8 @@ pub struct SeekOutput {
     /// file's best eligible symbols with their line spans (see
     /// [`SeekResultEntry::symbols`]); the rows, their order and their scores
     /// are the same with or without them. A `file_group` row's `intent_summary`
-    /// leaves out `m1nd:edge:*` edge-resolution tags.
+    /// leaves out `m1nd:edge:*` edge-resolution tags, and so does every row's
+    /// short default intent line.
     pub result_granularity: String,
     /// Mechanical query-entity presence receipt. Always present.
     pub grounding: SeekGrounding,
@@ -345,12 +354,25 @@ pub struct SeekResultEntry {
     pub node_type: String,
     /// Combined score: embedding * 0.5 + graph * 0.3 + temporal * 0.2.
     pub score: f32,
-    pub score_breakdown: SeekScoreBreakdown,
+    /// Diagnostic: the score's components. Sent only with `detail: true`.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub score_breakdown: Option<SeekScoreBreakdown>,
+    /// Diagnostic: the trust and tremor priors applied to this row. Sent only
+    /// with `detail: true`.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub heuristic_signals: Option<HeuristicSignals>,
-    /// Heuristic intent summary: `label (type) [tags]`. On `file_group` rows the
-    /// `m1nd:edge:*` edge-resolution diagnostics are left out of the tags.
+    /// Heuristic intent summary: `label (type) [tags]`. By default this is the
+    /// short intent line from [`Self::intent_line`]. With `detail: true` it is
+    /// the full summary: on `file_group` rows the `m1nd:edge:*` edge-resolution
+    /// diagnostics are left out of the tags, on `node` rows every tag is kept.
     pub intent_summary: String,
+    /// The short intent line a default row sends as `intent_summary`: the same
+    /// `label (type) [tags]` shape without `m1nd:edge:*` tags, cut on a
+    /// character boundary to at most 120 characters (a cut line ends in `…`).
+    /// Computed with the row so that `token_budget` packing, which measures
+    /// the full row, keeps the same rows with or without `detail`.
+    #[serde(skip)]
+    pub intent_line: String,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub file_path: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -375,8 +397,10 @@ pub struct SeekResultEntry {
     /// never faked (MED-INV-4).
     #[serde(skip_serializing_if = "Option::is_none")]
     pub origin_brain: Option<String>,
-    /// Connected nodes (callers, callees, importers).
-    pub connections: Vec<SeekConnection>,
+    /// Diagnostic: up to five connected nodes (outgoing edges). Sent only with
+    /// `detail: true`, where it is always present (possibly empty).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub connections: Option<Vec<SeekConnection>>,
     /// `file_group` rows only, and only the first ten rows: up to three symbols
     /// from this row's file, best first, so a caller can open the relevant span
     /// instead of the whole file. Candidates are the eligible nodes (same

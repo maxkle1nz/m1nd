@@ -1478,6 +1478,11 @@ pub fn handle_seek(
                 .source_path
                 .clone()
                 .or_else(|| l2_source_file_for_node(&graph, &node_to_ext, i));
+            let described: Vec<String> = tags
+                .iter()
+                .filter(|tag| !l2_is_edge_diagnostic_tag(tag))
+                .cloned()
+                .collect();
 
             layers::SeekResultEntry {
                 node_id: if ext_id.is_empty() {
@@ -1488,24 +1493,20 @@ pub fn handle_seek(
                 label: label.clone(),
                 node_type: nt.to_string(),
                 score: r.combined,
-                score_breakdown: layers::SeekScoreBreakdown {
+                score_breakdown: Some(layers::SeekScoreBreakdown {
                     embedding_similarity: r.keyword, // V1: keyword fills embedding slot. V2: fastembed cosine.
                     graph_activation: r.graph_act,
                     temporal_recency: r.trigram, // V1: trigram fills recency slot. V2: real recency.
-                },
+                }),
                 heuristic_signals: Some(r.heuristic_signals),
                 // A file-group row describes a file; edge-resolution
                 // diagnostics can run to thousands of characters there.
                 intent_summary: if file_group_mode {
-                    let described: Vec<String> = tags
-                        .iter()
-                        .filter(|tag| !l2_is_edge_diagnostic_tag(tag))
-                        .cloned()
-                        .collect();
                     l2_intent_summary(&label, nt, &described)
                 } else {
                     l2_intent_summary(&label, nt, &tags)
                 },
+                intent_line: l2_intent_line(&label, nt, &described),
                 file_path,
                 line_start: prov.line_start,
                 line_end: prov.line_end,
@@ -1513,7 +1514,7 @@ pub fn handle_seek(
                 authored_ms_ago,
                 source_agent,
                 origin_brain,
-                connections,
+                connections: Some(connections),
                 symbols: l2_file_group_symbols(
                     &graph,
                     &node_to_ext,
@@ -1531,8 +1532,9 @@ pub fn handle_seek(
     // Context-budget packing: keep highest-signal hits (already rank-ordered by
     // dedupe_ranked) that fit the agent's declared token budget. Only engages
     // when `token_budget` is provided — otherwise output is byte-for-byte the
-    // same as before.
-    let (results, budget) = if let Some(budget_tokens) = input.token_budget {
+    // same as before. Rows are measured in full (with their diagnostics), so
+    // `detail` never changes which rows a budget keeps.
+    let (mut results, budget) = if let Some(budget_tokens) = input.token_budget {
         let baseline = results.len();
         let (kept, dropped) = crate::result_shaping::pack_to_budget(
             results,
@@ -1711,6 +1713,12 @@ pub fn handle_seek(
         &grounding,
     );
 
+    // Every decision above read the full rows. Unless the caller asked for
+    // `detail`, send each row without its diagnostics.
+    if !input.detail {
+        results.iter_mut().for_each(l2_lean_seek_row);
+    }
+
     Ok(layers::SeekOutput {
         query: input.query,
         result_granularity: result_granularity.into(),
@@ -1768,6 +1776,8 @@ pub fn handle_focus(
         // `focus` rides `handle_seek`, so it inherits conformance-aware attention
         // for free (and the byte-identical-by-absence guarantee with it).
         conformance_aware: true,
+        // The focus set keeps seek's full rows.
+        detail: true,
     };
 
     let seek = handle_seek(state, seek_input)?;
@@ -1835,7 +1845,8 @@ pub fn handle_focus(
 /// fields (label, path, intent summary, excerpt, connections, attached
 /// symbols). Uses the chars/4 heuristic —
 /// see `result_shaping::estimate_tokens_from_chars`; this is an approximation,
-/// not exact tokenization.
+/// not exact tokenization. `handle_seek` applies it to the full row, before
+/// the diagnostics are dropped for a caller that did not ask for `detail`.
 fn seek_entry_token_estimate(entry: &layers::SeekResultEntry) -> usize {
     let mut chars = entry.label.len() + entry.node_type.len() + entry.intent_summary.len();
     chars += entry.node_id.len();
@@ -1845,7 +1856,7 @@ fn seek_entry_token_estimate(entry: &layers::SeekResultEntry) -> usize {
     if let Some(excerpt) = entry.excerpt.as_deref() {
         chars += excerpt.len();
     }
-    for conn in &entry.connections {
+    for conn in entry.connections.iter().flatten() {
         chars += conn.label.len() + conn.relation.len();
     }
     for symbol in &entry.symbols {
@@ -7708,6 +7719,37 @@ fn l2_intent_summary(label: &str, node_type: &str, tags: &[String]) -> String {
     }
 }
 
+/// Upper bound, in characters, of the short intent line a default seek row
+/// carries.
+const L2_INTENT_LINE_MAX_CHARS: usize = 120;
+
+/// The short intent line: the summary of `tags` (callers pass them without
+/// edge-resolution diagnostics), cut on a character boundary to
+/// [`L2_INTENT_LINE_MAX_CHARS`] characters, the last of which is `…` when
+/// anything was cut.
+fn l2_intent_line(label: &str, node_type: &str, tags: &[String]) -> String {
+    let summary = l2_intent_summary(label, node_type, tags);
+    match summary.char_indices().nth(L2_INTENT_LINE_MAX_CHARS) {
+        None => summary,
+        Some(_) => {
+            let keep = summary
+                .char_indices()
+                .nth(L2_INTENT_LINE_MAX_CHARS - 1)
+                .map_or(summary.len(), |(at, _)| at);
+            format!("{}…", &summary[..keep])
+        }
+    }
+}
+
+/// Drop a seek row's diagnostics and send its short intent line: the row a
+/// caller gets without `detail`.
+fn l2_lean_seek_row(row: &mut layers::SeekResultEntry) {
+    row.score_breakdown = None;
+    row.heuristic_signals = None;
+    row.connections = None;
+    row.intent_summary = std::mem::take(&mut row.intent_line);
+}
+
 // ---------------------------------------------------------------------------
 // L2 Scan: predefined pattern definitions
 // ---------------------------------------------------------------------------
@@ -11501,6 +11543,7 @@ mod tests {
                 graph_rerank: true,
                 conformance_aware: true,
                 token_budget: None,
+                detail: true,
             },
         )
         .expect("seek ok");
@@ -11508,13 +11551,14 @@ mod tests {
         eprintln!("=== EMBED PROBE: query='guard shutdown against cancellation' ===");
         eprintln!("embeddings_used = {}", out.embeddings_used);
         for (rank, r) in out.results.iter().enumerate() {
+            let breakdown = r.score_breakdown.as_ref().expect("detail row");
             eprintln!(
                 "  #{rank} {:<22} score={:.4} kw_slot={:.4} graph={:.4} tri_slot={:.4}",
                 r.label,
                 r.score,
-                r.score_breakdown.embedding_similarity,
-                r.score_breakdown.graph_activation,
-                r.score_breakdown.temporal_recency,
+                breakdown.embedding_similarity,
+                breakdown.graph_activation,
+                breakdown.temporal_recency,
             );
         }
 
@@ -11649,6 +11693,7 @@ mod tests {
                 graph_rerank: true,
                 conformance_aware: true,
                 token_budget: None,
+                detail: false,
             },
         )
         .expect("seek ok");
@@ -11808,6 +11853,7 @@ mod tests {
                 graph_rerank: true,
                 conformance_aware: true,
                 token_budget: None,
+                detail: false,
             },
         )
         .expect("seek ok");
@@ -12124,6 +12170,7 @@ mod tests {
                 graph_rerank: true,
                 conformance_aware: true,
                 token_budget: None,
+                detail: true,
             },
         )
         .expect("seek should succeed")
@@ -12168,6 +12215,7 @@ mod tests {
                 graph_rerank: true,
                 conformance_aware: true,
                 token_budget: None,
+                detail: false,
             },
         )
         .expect("seek ok");
@@ -12223,6 +12271,7 @@ mod tests {
                 graph_rerank: true,
                 conformance_aware: true,
                 token_budget: None,
+                detail: false,
             },
         )
         .expect("seek ok");
@@ -12277,6 +12326,7 @@ mod tests {
                 graph_rerank: true,
                 conformance_aware: true,
                 token_budget: None,
+                detail: false,
             },
         )
         .expect("seek ok");
@@ -12325,6 +12375,7 @@ mod tests {
                 graph_rerank: true,
                 conformance_aware: true,
                 token_budget: None,
+                detail: false,
             },
         )
         .expect("seek ok");
@@ -12570,6 +12621,7 @@ mod tests {
                 graph_rerank: true,
                 conformance_aware: true,
                 token_budget: None,
+                detail: false,
             },
         )
         .expect("seek ok");
@@ -12617,6 +12669,7 @@ mod tests {
                 graph_rerank: true,
                 conformance_aware: true,
                 token_budget: None,
+                detail: false,
             },
         )
         .expect("seek ok");
@@ -12674,6 +12727,7 @@ mod tests {
                 graph_rerank: true,
                 conformance_aware: true,
                 token_budget: None,
+                detail: false,
             },
         )
         .expect("seek ok");
@@ -12720,6 +12774,7 @@ mod tests {
                 graph_rerank: true,
                 conformance_aware: true,
                 token_budget: None,
+                detail: false,
             },
         )
         .expect("seek after calibration");
@@ -12754,6 +12809,7 @@ mod tests {
                 graph_rerank: true,
                 conformance_aware: true,
                 token_budget: None,
+                detail: false,
             },
         )
         .expect("seek after restart");
@@ -12813,6 +12869,7 @@ mod tests {
                 graph_rerank: true,
                 conformance_aware: true,
                 token_budget,
+                detail: false,
             },
         )
         .expect("seek should succeed")
@@ -12900,6 +12957,7 @@ mod tests {
                 graph_rerank,
                 conformance_aware,
                 token_budget: None,
+                detail: true,
             },
         )
         .expect("seek should succeed")
@@ -13293,7 +13351,8 @@ mod tests {
             out.results
                 .iter()
                 .find(|r| r.node_id == id)
-                .map(|r| r.score_breakdown.graph_activation)
+                .and_then(|r| r.score_breakdown.as_ref())
+                .map(|breakdown| breakdown.graph_activation)
                 .expect("node present")
         };
         assert!(
@@ -14658,6 +14717,7 @@ def5678|2026-03-23 09:00:00 +0000|max kle1nz|feat: add benchmark harness
                 graph_rerank: true,
                 conformance_aware: true,
                 token_budget: None,
+                detail: false,
             },
         )
         .expect("seek should return a structured blocked response");
@@ -14745,6 +14805,7 @@ def5678|2026-03-23 09:00:00 +0000|max kle1nz|feat: add benchmark harness
                 graph_rerank: true,
                 conformance_aware: true,
                 token_budget: None,
+                detail: false,
             },
         )
         .expect("seek should succeed");
@@ -14787,6 +14848,7 @@ def5678|2026-03-23 09:00:00 +0000|max kle1nz|feat: add benchmark harness
                 graph_rerank: true,
                 conformance_aware: true,
                 token_budget: None,
+                detail: false,
             },
         )
         .expect("seek should succeed");
@@ -14814,6 +14876,7 @@ def5678|2026-03-23 09:00:00 +0000|max kle1nz|feat: add benchmark harness
             graph_rerank: true,
             conformance_aware: true,
             token_budget: None,
+            detail: false,
         };
 
         handle_seek(&mut state, input.clone()).expect("first seek should build the cache");
@@ -14861,6 +14924,7 @@ def5678|2026-03-23 09:00:00 +0000|max kle1nz|feat: add benchmark harness
                 graph_rerank: true,
                 conformance_aware: true,
                 token_budget: None,
+                detail: false,
             },
         )
         .expect("seek should succeed");
@@ -14895,6 +14959,7 @@ def5678|2026-03-23 09:00:00 +0000|max kle1nz|feat: add benchmark harness
                 graph_rerank: true,
                 conformance_aware: true,
                 token_budget: None,
+                detail: false,
             },
         )
         .expect("seek should succeed");
@@ -14923,6 +14988,7 @@ def5678|2026-03-23 09:00:00 +0000|max kle1nz|feat: add benchmark harness
                 graph_rerank: true,
                 conformance_aware: true,
                 token_budget: None,
+                detail: false,
             },
         )
         .expect("seek should succeed");
@@ -14987,6 +15053,7 @@ def5678|2026-03-23 09:00:00 +0000|max kle1nz|feat: add benchmark harness
                     graph_rerank: true,
                     conformance_aware: true,
                     token_budget: None,
+                    detail: false,
                 },
             )
             .expect("seek should succeed");
@@ -16229,6 +16296,7 @@ def5678|2026-03-23 09:00:00 +0000|max kle1nz|feat: add benchmark harness
                 graph_rerank: true,
                 conformance_aware: true,
                 token_budget: None,
+                detail: false,
             },
         )
         .expect("seek ok");
@@ -16318,6 +16386,7 @@ def5678|2026-03-23 09:00:00 +0000|max kle1nz|feat: add benchmark harness
                 graph_rerank: true,
                 conformance_aware: false,
                 token_budget: None,
+                detail: false,
             },
         )
         .expect("seek ok");
@@ -16387,6 +16456,7 @@ def5678|2026-03-23 09:00:00 +0000|max kle1nz|feat: add benchmark harness
                 graph_rerank: true,
                 conformance_aware: false,
                 token_budget: None,
+                detail: false,
             },
         )
         .expect("seek ok");
