@@ -11,7 +11,7 @@ use m1nd_core::error::{M1ndError, M1ndResult};
 use m1nd_core::query::QueryConfig;
 use m1nd_core::temporal::ImpactDirection;
 use m1nd_core::types::*;
-use std::collections::{HashMap, HashSet};
+use std::collections::{BTreeSet, HashMap, HashSet};
 use std::time::Instant;
 
 // ---------------------------------------------------------------------------
@@ -175,6 +175,7 @@ pub(crate) const RUNTIME_OWNED_ROOT_FILES: &[&str] = &[
     "boot_memory_state.json",
     "calibration_state.json",
     "checkpoint-working-set-v1.json",
+    crate::co_change_history::CO_CHANGE_INDEX_FILE,
     "daemon_alerts.json",
     "daemon_state.json",
     "document_artifact_inventory.json",
@@ -1521,6 +1522,24 @@ fn finalize_ingest_with_inventory(
         state.workspace_root = Some(candidate_workspace_root);
     }
 
+    // Git co-change history (a lenient runtime sidecar, never part of the
+    // strict checkpoint). A whole-graph code scan records its root's history;
+    // any other whole-graph replacement drops history that no longer describes
+    // the graph. Every install then re-seeds the git half of the co-change
+    // matrix, which `rebuild_engines` above reset to structure alone.
+    if mode == "refresh" || mode == "replace" {
+        if adapter == "code" {
+            crate::co_change_history::record_code_root(
+                &state.runtime_root,
+                &input.path,
+                &stats.discovered_files,
+            );
+        } else {
+            crate::co_change_history::clear(&state.runtime_root);
+        }
+    }
+    crate::co_change_history::seed_predict_matrix(state);
+
     if let Err(e) = state.persist() {
         eprintln!("[m1nd] auto-persist after ingest failed: {}", e);
     }
@@ -2061,6 +2080,7 @@ pub fn handle_impact(state: &mut SessionState, input: ImpactInput) -> M1ndResult
                 next_step_hint: projection.next_step_hint,
                 total_blast_nodes: 0,
                 truncated: false,
+                co_change: None,
             });
         }
     };
@@ -2261,6 +2281,32 @@ pub fn handle_impact(state: &mut SessionState, input: ImpactInput) -> M1ndResult
         .collect();
     let truncated = total_blast_nodes > max_nodes_cap;
 
+    // What else usually changes with this file: git co-change partners the
+    // graph does not already link to it directly. Only hop-1 neighbours count
+    // as structural here: past one hop the radius runs through crate/workspace
+    // container nodes and reaches every file of the crate, which would leave
+    // nothing to say on any small codebase.
+    let co_change = node_to_ext
+        .get(node.as_usize())
+        .and_then(|external_id| crate::co_change_history::file_of_external_id(external_id))
+        .and_then(|target_file| {
+            let structural: BTreeSet<&str> = impact
+                .blast_radius
+                .iter()
+                .filter(|entry| entry.hop_distance <= 1)
+                .filter_map(|entry| node_to_ext.get(entry.node.as_usize()))
+                .filter_map(|external_id| {
+                    crate::co_change_history::file_of_external_id(external_id)
+                })
+                .collect();
+            crate::co_change_history::impact_partners(
+                &state.runtime_root,
+                &state.declared_roots_canonical(),
+                target_file,
+                &structural,
+            )
+        });
+
     let causal_chains: Vec<CausalChainOutput> = chains
         .iter()
         .map(|c| {
@@ -2324,6 +2370,7 @@ pub fn handle_impact(state: &mut SessionState, input: ImpactInput) -> M1ndResult
             .and_then(|projection| projection.next_step_hint.clone()),
         total_blast_nodes,
         truncated,
+        co_change,
     })
 }
 

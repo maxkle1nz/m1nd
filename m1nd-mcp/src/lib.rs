@@ -29,6 +29,9 @@ pub mod owner_authorization_broker;
 // No private key or implicit software signer is representable in this schema.
 pub mod auto_ingest;
 pub mod cli;
+/// Git co-change history behind `impact`'s `co_change` field (lenient runtime
+/// sidecar, never part of the strict checkpoint).
+mod co_change_history;
 /// The DOOR to the G9 Secure Enclave custody floor (`enclave_authority`). Present
 /// on every target on purpose: off macOS its steps REFUSE — `not_installed`, unless
 /// the platform-independent owner-presence gate already refused them — which is how
@@ -348,6 +351,11 @@ mod transplant_two_phase_internal_tests;
 #[cfg(test)]
 #[path = "internal_tests/boot_temporal_state_drift.rs"]
 mod boot_temporal_state_drift_internal_tests;
+// `impact` co-change battery: drives refresh + impact through the policy gate
+// and inspects the strict checkpoint digest, an owner-internal surface.
+#[cfg(test)]
+#[path = "internal_tests/impact_co_change.rs"]
+mod impact_co_change_internal_tests;
 
 // HTTP server + types (feature-gated behind "serve")
 #[cfg(feature = "serve")]

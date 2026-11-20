@@ -9,6 +9,8 @@ Seven tools for impact analysis, prediction, counterfactual simulation, fingerpr
 ## `impact`
 Impact radius / blast analysis for a node. Propagates signal outward from a source node to determine which other nodes would be affected by a change. Supports forward (downstream), reverse (upstream), and bidirectional analysis.
 
+When the brain's root is a git repository, `impact` also answers "what else usually changes when this changes" with a compact `co_change` field (see [Co-change partners](#impact-co-change)).
+
 ### Parameters
 
 | Parameter | Type | Required | Default | Description |
@@ -57,9 +59,35 @@ Impact radius / blast analysis for a node. Propagates signal outward from a sour
       "relations": ["imported_by", "registered_in"],
       "cumulative_strength": 0.82
     }
+  ],
+  "co_change": [
+    { "file": "docs/chat.md", "together": 6, "last": "9c41e07b2a" },
+    { "file": "pyproject.toml", "together": 3, "last": "51d0aa3c8e" }
   ]
 }
 ```
+
+<a id="impact-co-change"></a>
+
+### Co-change partners (`co_change`)
+
+Files that historically changed in the same commits as the target's file — the sibling manifest, the doc that describes the code, release metadata — which neither text search nor the structural graph links to it.
+
+| Key | Meaning |
+|-----|---------|
+| `file` | Path relative to the ingested root. |
+| `together` | Commits that changed both files. |
+| `last` | Short sha (10 characters) of the most recent of those commits — `git show <last>` shows the pair changing together. |
+
+Rules:
+
+- **Source.** A code `ingest` in `refresh` or `replace` mode of a git root reads `git log` over HEAD (no merges, no rename pairing) and keeps commits that touched 2 to 30 files: one file carries no pair, and an initial import or a repository-wide sweep is not coupling. Only files present in the scanned tree are kept.
+- **Selection.** At most five partners, excluding the target's own file and its direct (hop-1) structural neighbours. Ranked by `together`, then by the most recent joint commit, then by path, so the same graph and history always give the same field. A symbol target (`file::src/a.rs::fn::alpha`) answers for its file.
+- **Budget.** The serialized field never exceeds 1200 bytes (about 300 tokens); lower-ranked partners are dropped to fit.
+- **Absence.** No history — not a git root, no qualifying commit for this file, or a root the brain no longer declares — means the field is absent, never an empty list.
+- **Storage.** The history lives in the runtime sidecar `co_change_index_v1.json`, outside the strict checkpoint: it is read leniently (missing or corrupt means no field) and a runtime that carries it still boots under a binary that predates it.
+
+The same history seeds the git half of [`predict`](#m1ndpredict) after every graph install, with true per-commit counts.
 
 ### When to Use
 
