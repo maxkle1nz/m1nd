@@ -112,7 +112,8 @@ impl Extractor for JavaExtractor {
             // ------------------------------------------------------------------
             let is_definition = if let Some(caps) = self.re_class.captures(line) {
                 let name = caps.get(1).unwrap().as_str();
-                let node_id = format!("{}::class::{}", file_id, name);
+                let node_id =
+                    super::unique_node_id(&nodes, &format!("{}::class::{}", file_id, name));
                 nodes.push(ExtractedNode {
                     id: node_id.clone(),
                     label: name.to_string(),
@@ -130,7 +131,8 @@ impl Extractor for JavaExtractor {
                 true
             } else if let Some(caps) = self.re_interface.captures(line) {
                 let name = caps.get(1).unwrap().as_str();
-                let node_id = format!("{}::interface::{}", file_id, name);
+                let node_id =
+                    super::unique_node_id(&nodes, &format!("{}::interface::{}", file_id, name));
                 nodes.push(ExtractedNode {
                     id: node_id.clone(),
                     label: name.to_string(),
@@ -148,7 +150,8 @@ impl Extractor for JavaExtractor {
                 true
             } else if let Some(caps) = self.re_enum.captures(line) {
                 let name = caps.get(1).unwrap().as_str();
-                let node_id = format!("{}::enum::{}", file_id, name);
+                let node_id =
+                    super::unique_node_id(&nodes, &format!("{}::enum::{}", file_id, name));
                 nodes.push(ExtractedNode {
                     id: node_id.clone(),
                     label: name.to_string(),

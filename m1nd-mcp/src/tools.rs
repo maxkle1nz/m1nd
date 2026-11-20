@@ -1217,6 +1217,38 @@ pub fn reload_agent_memory(state: &mut SessionState) -> Option<serde_json::Value
     }
 }
 
+/// The rule an `m1nd-ingest-contribution-gaps-v0` report carries verbatim.
+pub(crate) const INGEST_CONTRIBUTION_GAPS_RULE: &str = "One source never aborts the ingest. A static contribution the graph could not admit (a disagreeing duplicate of an external id or edge, or an id the graph cannot hold) was dropped and is named here; the first contribution met wins. Every other contribution is in the graph.";
+
+/// The agent-facing report of what a code ingest dropped instead of refusing
+/// the run, or `None` when it dropped nothing (clean outputs stay unchanged).
+pub(crate) fn ingest_contribution_gaps_report(
+    stats: &m1nd_ingest::IngestStats,
+) -> Option<serde_json::Value> {
+    if stats.contributions_dropped == 0 {
+        return None;
+    }
+    let sample = stats
+        .contribution_gaps
+        .iter()
+        .map(|gap| {
+            serde_json::json!({
+                "kind": gap.kind,
+                "source": gap.source_key,
+                "subject": gap.subject,
+                "detail": gap.detail,
+            })
+        })
+        .collect::<Vec<_>>();
+    Some(serde_json::json!({
+        "schema": "m1nd-ingest-contribution-gaps-v0",
+        "contributions_dropped": stats.contributions_dropped,
+        "sample_truncated": stats.contributions_dropped > sample.len() as u64,
+        "sample": sample,
+        "rule": INGEST_CONTRIBUTION_GAPS_RULE,
+    }))
+}
+
 fn finalize_ingest(
     state: &mut SessionState,
     input: &IngestInput,
@@ -1618,6 +1650,17 @@ fn finalize_ingest_with_inventory(
         // the erasure this field exists to make visible.
         "synapses_restored": synapses_restored,
     });
+    // One source never aborts a code ingest: whatever the static-contribution
+    // fence dropped instead is named here and kept for `health`/`north` until
+    // the next code ingest. A clean run adds no key and clears the record.
+    if adapter == "code" {
+        state.ingest_contribution_gaps = ingest_contribution_gaps_report(&stats);
+        if let Some(gaps) = &state.ingest_contribution_gaps {
+            out.as_object_mut()
+                .unwrap()
+                .insert("ingest_gaps".to_string(), gaps.clone());
+        }
+    }
     // Include memory_freshness only for code ingests (non-null).
     if !memory_freshness.is_null() {
         out.as_object_mut()
@@ -4203,6 +4246,7 @@ pub fn handle_health(state: &mut SessionState, _input: HealthInput) -> M1ndResul
         // (serde-skipped) on match / unknown caller.
         reception: state.reception_verdict(),
         graph_drift,
+        ingest_gaps: state.ingest_contribution_gaps.clone(),
     })
 }
 
@@ -7394,6 +7438,67 @@ mod tests {
         assert!(output.get("agent_memory_restored").is_none());
         assert_eq!(state.ingest_roots, roots);
         assert_eq!(state.workspace_root, workspace);
+    }
+
+    /// What a code ingest dropped instead of refusing the run is never silent:
+    /// the ingest output names it, `health.ingest_gaps` keeps serving it, and
+    /// the next clean code ingest clears it without adding any key.
+    #[test]
+    fn dropped_ingest_contributions_surface_in_output_and_health_until_a_clean_run() {
+        let temp = tempfile::tempdir().expect("tempdir");
+        let mut state = build_runtime_state(&temp.path().join("runtime"));
+        let source = temp.path().join("repo");
+        std::fs::create_dir_all(&source).expect("source dir");
+        std::fs::write(source.join("lib.rs"), "pub fn entry() {}\n").expect("source");
+        let ingest = || {
+            m1nd_ingest::Ingestor::new(m1nd_ingest::IngestConfig {
+                root: source.clone(),
+                parallelism: 1,
+                ..Default::default()
+            })
+            .ingest()
+            .expect("code candidate")
+        };
+        let input: crate::protocol::core::IngestInput = serde_json::from_value(serde_json::json!({
+            "path": source.to_string_lossy(), "agent_id": "ingest-gaps-probe"
+        }))
+        .expect("input");
+        let health_input: crate::protocol::core::HealthInput =
+            serde_json::from_value(serde_json::json!({ "agent_id": "ingest-gaps-probe" }))
+                .expect("health input");
+
+        let (graph, mut stats) = ingest();
+        stats.record_contribution_gap(m1nd_ingest::IngestContributionGap {
+            kind: "conflicting_node_contribution",
+            source_key: "docs/guide.md".into(),
+            subject: "file::docs/guide.md::type::Person".into(),
+            detail: "kept the first contribution".into(),
+        });
+        let output = super::finalize_ingest(&mut state, &input, "code", graph, stats)
+            .expect("a dropped contribution never refuses the install");
+        let gaps = &output["ingest_gaps"];
+        assert_eq!(gaps["schema"], "m1nd-ingest-contribution-gaps-v0");
+        assert_eq!(gaps["contributions_dropped"], 1);
+        assert_eq!(gaps["sample"][0]["source"], "docs/guide.md");
+        assert_eq!(gaps["sample_truncated"], false);
+        let health = serde_json::to_value(
+            super::handle_health(&mut state, health_input.clone()).expect("health"),
+        )
+        .expect("health json");
+        assert_eq!(
+            &health["ingest_gaps"], gaps,
+            "health keeps serving the gaps"
+        );
+
+        let (graph, stats) = ingest();
+        let output = super::finalize_ingest(&mut state, &input, "code", graph, stats)
+            .expect("clean install");
+        assert!(output.get("ingest_gaps").is_none(), "{output}");
+        assert!(state.ingest_contribution_gaps.is_none());
+        let health =
+            serde_json::to_value(super::handle_health(&mut state, health_input).expect("health"))
+                .expect("health json");
+        assert!(health.get("ingest_gaps").is_none(), "{health}");
     }
 
     #[test]

@@ -166,8 +166,9 @@ flowchart TD
 
 ## Invariantes
 
-- External-id hygiene: file ids must be non-empty relative paths; build_file_external_id/is_valid_external_id reject empty/`.`/`file::`; invalid nodes/edges skipped with a hygiene warning (lib.rs:46-92,316-324).
-- Node-id uniqueness within a file: same-named siblings get #2/#3 suffixes (unique_node_id) so no distinct definition is silently dropped by DuplicateNode (extract/mod.rs:387).
+- External-id hygiene: file ids must be non-empty relative paths; build_file_external_id/is_valid_external_id reject empty/`.`/`file::`; invalid nodes/edges skipped with a hygiene warning (lib.rs `reconcile_static_contributions`, edge loop).
+- Node-id uniqueness within a file: same-named siblings get #2/#3 suffixes (unique_node_id) so no distinct definition is silently dropped by DuplicateNode — functions and, since 2026-11-19, type-level ids (`type`/`class`/`struct`/`interface`/`enum`) in the generic, Python, TypeScript, Java and Go extractors (extract/mod.rs `unique_node_id`).
+- One source never aborts a full ingest: the static-contribution fence (lib.rs `reconcile_static_contributions`) keeps the FIRST contribution met per external id / edge key (sorted source order, then extractor order), drops each later disagreeing one or invalid id, and records it on `IngestStats.contributions_dropped` / `contribution_gaps`; served as the ingest output's and `health`'s `ingest_gaps` plus one `north` honest gap. It used to refuse the whole run (a repeated Go example in one markdown guide left a repository with no graph).
 - First-wins on duplicate ids: the surviving node keeps its OWN excerpt (or_insert), matching graph insertion order (lib.rs:292-298).
 - ref::-prefixed edge targets are always deferred to the reference resolver, never added directly (lib.rs:389-408).
 - Provenance source_path is the containing file with the file:: prefix stripped, or repointed to canonical.md for universal docs — required for xray_apply AnnotateSymbol to match symbols (lib.rs:358; universal_docs.rs:282).

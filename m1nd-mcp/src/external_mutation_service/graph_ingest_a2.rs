@@ -448,6 +448,10 @@ impl GraphIngestA2CandidateStatsV1 {
                 // The durable A2 candidate does not carry the walk's commit, so
                 // the graph it installs records no indexed commit (unknown).
                 vcs_head_oid: None,
+                // Not part of the persisted candidate shape (deny_unknown_fields
+                // across binary versions); a recovered candidate reports none.
+                contributions_dropped: 0,
+                contribution_gaps: Vec::new(),
             },
             self.file_inventory,
         )

@@ -33,6 +33,18 @@ therefore use the graph without a preceding `--birth` command or public
 `ingest` call. A later call and a clean process restart reuse the persisted
 graph instead of recreating it.
 
+One source file never refuses that preparation for the rest of the repository.
+Same-named definitions inside one source (a markdown guide that repeats a code
+example, a class defined per version branch, TypeScript interface merging) are
+distinct occurrences: the first keeps the clean id and later ones take `#2`,
+`#3`. A static contribution the graph still cannot admit — a disagreeing
+duplicate of an external id or edge, or an id the graph cannot hold — is
+dropped instead of aborting the run; the first contribution met wins. The
+drop is named in the ingest output and in `health.ingest_gaps`
+(`m1nd-ingest-contribution-gaps-v0`: exact count, a bounded sample, the rule),
+and `north` adds one honest gap line, until the next clean code ingest in the
+same process.
+
 `launcher_workspace_root` in an explicit JSON server configuration is the
 equivalent configuration-file contract. `M1ND_WORKSPACE_ROOT` fills it only
 when the file does not already provide one.
