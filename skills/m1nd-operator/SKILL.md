@@ -106,6 +106,13 @@ measured high-signal pattern starts by never starting cold:
    and focused probes.
 5. Before edits/reviews, run `impact`, `validate_plan`, and usually
    `surgical_context_v2`.
+   Ask `impact` about a function, never a whole file: `causal_chains` comes
+   capped at the strongest 20 (`causal_chains_truncated` says when; raise it
+   with `max_causal_chains`). Before you call a change done, read `impact`'s
+   `co_change` for each file you touched: up to five files that usually
+   changed in the same commits — mostly docs, manifests, and release
+   metadata, not hidden code coupling. Check every partner outside your
+   diff. Absent means no recorded history, not proof that nothing moves.
 6. Record the investigation path: m1nd calls, recovery decisions, files
    inspected, commands run, and fallback reason.
 
@@ -128,6 +135,10 @@ Verdict semantics — respect evidence qualification:
   unresolved (guessed/dropped) edge: verify that edge before relying on the path.
 - `seek` carries a `trust_envelope` + a sufficiency stop-signal — `sufficient` =
   stop gathering; `gathering`/`saturated` = widen or refine.
+- `seek` rows are lean by default: file, line span, `symbols`, score.
+  `detail: true` adds each row's diagnostics (`connections`,
+  `heuristic_signals`, `score_breakdown`) without changing ids, order, or
+  scores — ask for it only to inspect a ranking.
 - `trust_band: insufficient_evidence` = NO evidence, not medium risk — the
   honest cold-start answer, distinct from low/medium/high risk.
 
@@ -664,8 +675,11 @@ source reads, tests, runtime probes, or CI evidence.
   path rests on an unresolved edge; verify that edge before relying on it.
 - Smells like missing validation, abstraction, cleanup, or lock: use `missing`.
 - Have a stacktrace or runtime error text: use `trace`.
-- Need blast radius before editing: use `impact`.
-- Need co-change follow-through after editing: use `predict` for ranked
+- Need blast radius before editing: use `impact` on a function, not a whole
+  file (`causal_chains` capped at 20; `max_causal_chains` raises it).
+- Need co-change follow-through after editing: read `impact`'s `co_change`
+  for each touched file and check partners outside your diff (files usually
+  changed together: mostly docs, manifests, metadata). Use `predict` for ranked
   candidates to inspect. Its current verdicts abstain because all v1
   calibration rows are unqualified; running `calibrate_predict` does not arm
   the gate. Check the proposed coupling against source and executed evidence.
