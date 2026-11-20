@@ -52,7 +52,7 @@ pub const NEEDS_INGEST_GAP: &str =
 /// The brand constant is the WORD `m1nd` (amendment 7 — the wordmark is the
 /// mark, always lowercase); the spine `│` (U+2502) is the accepted structural
 /// glyph. ASCII fallback is the AGENT's duty (1:1 map `│`→`|`, `·`→`.`,
-/// `—`→`-`), documented in `M1ND_INSTRUCTIONS`.
+/// `—`→`-`), documented in the `voice` help topic (`help_topics.rs`).
 const WORDMARK: &str = "m1nd";
 const SPINE: char = '│';
 /// Field separator inside the identity line (U+00B7).
@@ -62,7 +62,7 @@ const SEP: &str = " · ";
 /// EAW class N) is a vital sign at rest; `│` (U+2502) is the SAME spine glyph,
 /// raised, so a calling cell reads as a stem standing up out of the calm row.
 /// ASCII fallback is the AGENT's duty (1:1 map `╷`→`.`, `│`→`|`; widths
-/// identical), documented in `M1ND_INSTRUCTIONS` §7 and the three skills.
+/// identical), documented in `M1ND_INSTRUCTIONS`, the `voice` help topic and the three skills.
 const PULSE_CALM: char = '╷';
 const PULSE_RAISED: char = '│';
 /// The pulse row width — FIVE cells, frozen forever (the anti-equalizer law).

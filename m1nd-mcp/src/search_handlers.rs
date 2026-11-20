@@ -1750,7 +1750,9 @@ pub fn handle_help(_state: &mut SessionState, input: HelpInput) -> M1ndResult<He
         })
     };
 
-    let resolution = if let Some(name) = input.tool_name.as_deref() {
+    let resolution = if let Some(topic) = input.topic.as_deref() {
+        help_guidance::build_topic_resolution(topic)
+    } else if let Some(name) = input.tool_name.as_deref() {
         let normalized = normalize_help_tool_name(name);
         if normalized == "about" {
             help_guidance::HelpResolution {
@@ -1867,6 +1869,7 @@ mod tests {
             recent_tools: vec![],
             max_suggestions: None,
             render: None,
+            topic: None,
         }
     }
 

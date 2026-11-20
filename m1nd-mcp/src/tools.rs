@@ -2015,6 +2015,7 @@ pub fn handle_activate(
         recent_tools: vec![],
         max_suggestions: None,
         render: Some(HelpRender::None),
+        topic: None,
     };
     let activated_count = activated.len();
     let default_activate_proof_state = if activated_count == 0 {
@@ -2145,6 +2146,7 @@ pub fn handle_impact(state: &mut SessionState, input: ImpactInput) -> M1ndResult
         recent_tools: vec![],
         max_suggestions: None,
         render: Some(HelpRender::None),
+        topic: None,
     };
     let impact_projection =
         help_guidance::runtime_projection_for_tool("impact", &impact_help_input, "triaging");
@@ -2164,6 +2166,7 @@ pub fn handle_impact(state: &mut SessionState, input: ImpactInput) -> M1ndResult
                 recent_tools: vec![],
                 max_suggestions: Some(3),
                 render: Some(HelpRender::None),
+                topic: None,
             };
             let recovery = help_guidance::build_recovery_resolution(&recovery_input);
             let projection =

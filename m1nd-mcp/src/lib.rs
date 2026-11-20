@@ -47,6 +47,7 @@ pub mod enclave_authority;
 // Freshness at first contact — the indexed commit and the `graph_drift` note.
 pub mod graph_drift;
 pub mod help_guidance;
+pub mod help_topics;
 pub mod owner_security_config;
 pub mod protected_journal_head;
 pub mod protocol;

@@ -283,7 +283,7 @@ mismatch > needs_ingest > bell > coherence):
 - The `state_sig` is the mechanical anti-repetition key
   (`trust|bell:N|coh:ok·sick|recv:match·mismatch|pulse:╷╷╷╷╷`): equal state ⇒
   equal sig; agents never render the same sig twice in a session (cadence law
-  in `M1ND_INSTRUCTIONS` §7 and the three skills). The pulse row is appended so
+  in `M1ND_INSTRUCTIONS`, the `voice` help topic and the three skills). The pulse row is appended so
   a change in the graph/focus vitals (not only the four legacy tokens) flips
   the key.
 

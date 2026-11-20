@@ -125,7 +125,7 @@ sequenceDiagram
 | 5 | max depth 3 (root→collection→item); "0" = back | `depth` 0/1; `select:"0"` re-serves root |
 | 6 | stable slots for the trio; menu_sig; drill re-asserts store_version/state_sig | `slots_are_stable_across_conditions`; `state_moved` |
 | 7 | widget payload = number + menu_sig, never free text / write verb | `menu_sig`; `docs/voice/WIDGET-TEMPLATE.md` (archived) |
-| 8 | on-request only; no landing auto-serve | `on_request_only:true`; negative default in `M1ND_INSTRUCTIONS` §7 + 3 skills |
+| 8 | on-request only; no landing auto-serve | `on_request_only:true`; negative default in `M1ND_INSTRUCTIONS` (the cadence line) and `help {topic: "voice"}` (the full card law) + 3 skills |
 | 9 | own budget, battery-pinned | ≤800 ceiling, now MECHANICALLY pinned by `cockpit_budget_holds_with_the_eighth_slot`: worst-case root ~574 tokens, presences-drill ~567 (the new largest drill) — re-pinned 2026-07-13 after the P1 8th slot |
 | 10 | reuse the help machine (catalog), never a parallel one | `why` from `help_guidance::catalog_entry` |
 
