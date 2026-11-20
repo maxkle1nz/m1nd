@@ -215,8 +215,9 @@ owner on port `1338` — all tests use temp dirs.
 - **Async cloud agents** (e.g. Jules) should take independent, self-contained units. Platform-authored
   bot commits are never merged to `main`; the maintainer cherry-picks and re-authors them, stating
   provenance honestly in the commit body.
-- **Squash is the default merge strategy** (one PR = one conventional commit on `main`). Merge
-  commits are reserved for ceremonies whose commit lineage is itself the artifact. Never arm
+- **Squash is the default merge strategy** (one PR = one conventional commit on `main`). A train
+  (see "Develop m1nd with m1nd") keeps its per-change commits instead. Merge commits are reserved
+  for ceremonies whose commit lineage is itself the artifact. Never arm
   auto-merge on an unreviewed PR.
 - **Documentation coupling:** behavior, API, or architecture changes update `docs/` (including
   `docs/wiki/`), `README.md`, `CONTRIBUTING.md`, or `skills/` in the same PR (enforced by
@@ -267,13 +268,33 @@ durable findings after. Cloud VMs cannot reach a local owner — skip this there
   and first/last seen. Unrouted names collapse into `<unrouted>`; caller text (`agent_id`,
   arguments, queries, paths) must never reach the file
   (`verb_usage_persisted_shape_holds_no_free_text`).
-- **Out-of-scope defects go in the box:** do not fix unrelated defects mid-mission and do not
-  swallow them. Append one JSON line (`bug` / `honesty` / `friction` / `win`) to the spool at
+- **Out-of-scope defects go in the box, and every task ends with one letter:** do not fix
+  unrelated defects mid-mission and do not swallow them. Append one JSON line to the spool at
   `~/.m1nd/field-reports.jsonl` (`m1nd-mcp/src/mailbox.rs`), routed by `repo` into
-  `<repo>/.m1nd/inbox.jsonl`. Read boxes via `GET /api/mailbox?brain=<root>` or
+  `<repo>/.m1nd/inbox.jsonl`. Every task, defect or not, closes with one letter: `class`
+  `win` | `friction` | `bug` | `honesty`, the `tool`, `what` you asked and what came back, and what
+  you `expected`. Never secrets, tokens, or credentials. Read boxes via `GET /api/mailbox?brain=<root>` or
   `m1nd-mcp --inbox-sweep` (CLI/REST only, never MCP). Answering and closing letters is part of
   owning a repo; committing `<repo>/.m1nd/inbox.jsonl` in a public repo is a publishing decision.
   Carry this duty verbatim in subagent specs.
+
+## Develop m1nd with m1nd
+
+The fastest way to learn what agents need from m1nd is to be one. When a served owner or a
+launcher-granted runtime covers your checkout:
+
+- Orient with `north(task)`, find code with `seek`, and ask `impact` (`direction: "reverse"`, on a
+  function, never a whole file) before you change a seam. Heed `graph_drift`: run its `refresh`
+  call or read lines as of `indexed`. Open every span before you trust it.
+- Before you call a change done, read `impact`'s `co_change` for every file you touched and answer
+  for each partner outside your diff: the manifest, skill, or doc that usually moves with it.
+- Say what helped and what did not in the letter that ends the task (above). The evidence behind
+  each practice is in `docs/AGENT-BEST-PRACTICES.md`.
+
+**Changes ship in trains.** Each change gets its own branch: failing tests first, then its local
+gates and its proof (a bracketed regression run, a measured cost). Proven changes stack onto one
+train branch, which gets one full local gate run, one PR, and one hosted CI run, and merges keeping
+its per-change commits, so each change stays one reviewable conventional commit on `main`.
 
 ## Wear the wire (when m1nd is served)
 
