@@ -52,7 +52,10 @@ impl Extractor for GenericExtractor {
 
             if let Some(caps) = self.re_class.captures(line) {
                 let name = caps.get(1).unwrap().as_str();
-                let node_id = format!("{}::type::{}", file_id, name);
+                // A doc that repeats one code example names the same type once
+                // per block: each occurrence stays addressable as `#2`/`#3`.
+                let node_id =
+                    super::unique_node_id(&nodes, &format!("{}::type::{}", file_id, name));
                 nodes.push(ExtractedNode {
                     id: node_id.clone(),
                     label: name.to_string(),

@@ -496,6 +496,48 @@ pub struct IngestStats {
     /// branch, a partial (exact-file) ingest, and every non-code adapter: an
     /// absent commit is unknown, never "current".
     pub vcs_head_oid: Option<String>,
+    /// Static contributions this ingest dropped instead of refusing the run.
+    /// Exact, including past the sample bound of `contribution_gaps`.
+    pub contributions_dropped: u64,
+    /// The first [`INGEST_CONTRIBUTION_GAP_SAMPLE_LIMIT`] dropped
+    /// contributions, in the deterministic order the ingest met them.
+    pub contribution_gaps: Vec<IngestContributionGap>,
+}
+
+/// How many dropped contributions an ingest names verbatim. The count in
+/// [`IngestStats::contributions_dropped`] stays exact past this bound.
+pub const INGEST_CONTRIBUTION_GAP_SAMPLE_LIMIT: usize = 32;
+
+/// One static contribution an ingest set aside instead of refusing the run.
+///
+/// A single source must never take down the graph of every other source, so a
+/// contribution the graph cannot admit is dropped, counted in
+/// [`IngestStats::contributions_dropped`] and named here — never silently.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct IngestContributionGap {
+    /// `conflicting_node_contribution`, `conflicting_edge_contribution` or
+    /// `invalid_node_id`.
+    pub kind: &'static str,
+    /// Managed-root relative source whose contribution was dropped.
+    pub source_key: String,
+    /// The external id, or `source -> target (relation)` for an edge.
+    pub subject: String,
+    /// What was kept instead, in one line.
+    pub detail: String,
+}
+
+impl IngestStats {
+    /// Count one dropped contribution and name it while the sample has room.
+    pub fn record_contribution_gap(&mut self, gap: IngestContributionGap) {
+        self.contributions_dropped += 1;
+        if self.contribution_gaps.len() < INGEST_CONTRIBUTION_GAP_SAMPLE_LIMIT {
+            eprintln!(
+                "[m1nd-ingest] dropped {} from {:?}: {:?} — {}",
+                gap.kind, gap.source_key, gap.subject, gap.detail
+            );
+            self.contribution_gaps.push(gap);
+        }
+    }
 }
 
 /// A code graph plus the exact per-source ownership needed for safe incremental
@@ -757,6 +799,148 @@ where
         }
         Ok(())
     }
+}
+
+/// What the static-contribution fence admits, aligned with its inputs.
+struct StaticContributionFence {
+    keep_nodes: Vec<bool>,
+    keep_edges: Vec<bool>,
+    invalid_nodes: u64,
+}
+
+/// The static-contribution fence of a full ingest.
+///
+/// Every contribution to one external id (or one `source -> target
+/// (relation)` edge key) must agree. When two disagree, the FIRST one met
+/// wins — sources in sorted managed-root order, each source in its extractor's
+/// emission order — and every later disagreeing contribution is dropped and
+/// recorded on `stats`. Byte-identical repeats pass through unchanged (graph
+/// insertion collapses them, as before). An id the graph cannot hold is
+/// dropped the same way, so edges naming it are skipped as invalid endpoints.
+///
+/// The fence merges; it never renames. Extractors that can tell two same-named
+/// definitions apart give them `#2`, `#3` ids at the source
+/// (`extract::unique_node_id`), but here the edges a source emitted already
+/// name the shared id and could not say which occurrence they meant.
+///
+/// It used to refuse the whole run instead: one markdown guide repeating a Go
+/// example left an entire repository — and a first-time launcher birth — with
+/// no graph at all. One source must never take down every other source.
+fn reconcile_static_contributions<P>(
+    nodes: &[(String, String, extract::ExtractedNode)],
+    edges: &[(String, extract::ExtractedEdge)],
+    node_excerpts: &std::collections::HashMap<String, String>,
+    stats: &mut IngestStats,
+    cancellation: &IngestCancellation<'_, P>,
+) -> M1ndResult<StaticContributionFence>
+where
+    P: Fn() -> bool + Sync + ?Sized,
+{
+    use std::collections::btree_map::Entry;
+
+    type NodeContribution = (
+        String,
+        String,
+        Vec<String>,
+        u32,
+        u32,
+        String,
+        Option<String>,
+    );
+
+    let mut fence = StaticContributionFence {
+        keep_nodes: Vec::with_capacity(nodes.len()),
+        keep_edges: Vec::with_capacity(edges.len()),
+        invalid_nodes: 0,
+    };
+    let mut node_contributions = BTreeMap::<&str, (&str, NodeContribution)>::new();
+    for (source_key, file_id, node) in nodes {
+        cancellation.check()?;
+        if !is_valid_external_id(&node.id) {
+            fence.keep_nodes.push(false);
+            fence.invalid_nodes += 1;
+            stats.record_contribution_gap(IngestContributionGap {
+                kind: "invalid_node_id",
+                source_key: source_key.clone(),
+                subject: node.id.clone(),
+                detail: format!(
+                    "the extractor emitted an id the graph cannot hold (line {}); the node and edges naming it were skipped",
+                    node.line
+                ),
+            });
+            continue;
+        }
+        let mut tags = node.tags.clone();
+        tags.sort();
+        tags.dedup();
+        let contribution = (
+            node.label.clone(),
+            format!("{:?}", node.node_type),
+            tags,
+            node.line,
+            node.end_line,
+            file_id.clone(),
+            node_excerpts.get(&node.id).cloned(),
+        );
+        match node_contributions.entry(node.id.as_str()) {
+            Entry::Vacant(slot) => {
+                slot.insert((source_key.as_str(), contribution));
+                fence.keep_nodes.push(true);
+            }
+            Entry::Occupied(first) => {
+                let (kept_source, kept) = first.get();
+                if *kept == contribution {
+                    fence.keep_nodes.push(true);
+                    continue;
+                }
+                fence.keep_nodes.push(false);
+                stats.record_contribution_gap(IngestContributionGap {
+                    kind: "conflicting_node_contribution",
+                    source_key: source_key.clone(),
+                    subject: node.id.clone(),
+                    detail: format!(
+                        "kept the first contribution ({kept_source} line {}, {}); dropped this one (line {}, {})",
+                        kept.3, kept.1, node.line, contribution.1
+                    ),
+                });
+            }
+        }
+    }
+
+    let mut edge_contributions = BTreeMap::<(&str, &str, &str), (&str, u32)>::new();
+    for (source_key, edge) in edges {
+        cancellation.check()?;
+        let weight = edge.weight.to_bits();
+        match edge_contributions.entry((
+            edge.source.as_str(),
+            edge.target.as_str(),
+            edge.relation.as_str(),
+        )) {
+            Entry::Vacant(slot) => {
+                slot.insert((source_key.as_str(), weight));
+                fence.keep_edges.push(true);
+            }
+            Entry::Occupied(first) => {
+                let (kept_source, kept_weight) = *first.get();
+                if kept_weight == weight {
+                    fence.keep_edges.push(true);
+                    continue;
+                }
+                fence.keep_edges.push(false);
+                stats.record_contribution_gap(IngestContributionGap {
+                    kind: "conflicting_edge_contribution",
+                    source_key: source_key.clone(),
+                    subject: format!("{} -> {} ({})", edge.source, edge.target, edge.relation),
+                    detail: format!(
+                        "kept weight {} from {kept_source}; dropped weight {}",
+                        f32::from_bits(kept_weight),
+                        edge.weight
+                    ),
+                });
+            }
+        }
+    }
+    Ok(fence)
 }
 
 struct IngestBundleContext<'a> {
@@ -1399,69 +1583,24 @@ impl Ingestor {
             );
         }
 
-        let mut node_contributions = BTreeMap::<
-            String,
-            (
-                String,
-                String,
-                Vec<String>,
-                u32,
-                u32,
-                String,
-                Option<String>,
-            ),
-        >::new();
-        for (_, file_id, node) in &all_nodes {
-            cancellation.check()?;
-            let mut tags = node.tags.clone();
-            tags.sort();
-            tags.dedup();
-            let contribution = (
-                node.label.clone(),
-                format!("{:?}", node.node_type),
-                tags,
-                node.line,
-                node.end_line,
-                file_id.clone(),
-                node_excerpts.get(&node.id).cloned(),
-            );
-            if let Some(existing) = node_contributions.insert(node.id.clone(), contribution.clone())
-            {
-                if existing != contribution {
-                    // Preserve both sides of the deterministic conflict in the
-                    // refusal. An external id collision is otherwise almost
-                    // impossible to diagnose on a large corpus because the id
-                    // alone does not reveal which extractor line/scope drifted.
-                    return Err(M1ndError::FullReindexRequired {
-                        reason: format!(
-                            "conflicting static node contributions for external id {:?}; first={existing:?}; next={contribution:?}",
-                            node.id
-                        ),
-                    });
-                }
-            }
-        }
-        let mut edge_contributions = BTreeMap::<(String, String, String), u32>::new();
-        for (_, edge) in &all_edges {
-            cancellation.check()?;
-            let key = (
-                edge.source.clone(),
-                edge.target.clone(),
-                edge.relation.clone(),
-            );
-            let weight = edge.weight.to_bits();
-            if edge_contributions
-                .insert(key.clone(), weight)
-                .is_some_and(|existing| existing != weight)
-            {
-                return Err(M1ndError::FullReindexRequired {
-                    reason: format!(
-                        "conflicting static edge contributions for {:?} -> {:?} ({:?})",
-                        key.0, key.1, key.2
-                    ),
-                });
-            }
-        }
+        let fence = reconcile_static_contributions(
+            &all_nodes,
+            &all_edges,
+            &node_excerpts,
+            &mut stats,
+            cancellation,
+        )?;
+        let skipped_invalid_nodes = fence.invalid_nodes;
+        let mut all_nodes = all_nodes
+            .into_iter()
+            .zip(fence.keep_nodes)
+            .filter_map(|(node, keep)| keep.then_some(node))
+            .collect::<Vec<_>>();
+        let mut all_edges = all_edges
+            .into_iter()
+            .zip(fence.keep_edges)
+            .filter_map(|(edge, keep)| keep.then_some(edge))
+            .collect::<Vec<_>>();
         cancellation.check()?;
         all_nodes.sort_by(|left, right| {
             (
@@ -1513,9 +1652,11 @@ impl Ingestor {
                 }
             }
         }
-        let mut skipped_invalid_nodes = 0u64;
         for (source_key, file_id, node) in &all_nodes {
             cancellation.check()?;
+            // The static-contribution fence above already dropped and named
+            // every invalid id; reaching this refusal means the fence itself
+            // regressed, so it stays a hard invariant.
             if !is_valid_external_id(&node.id) {
                 return Err(M1ndError::InvalidParams {
                     tool: "ingest".into(),
@@ -1850,10 +1991,11 @@ impl Ingestor {
         cancellation.check()?;
         stats.elapsed_ms = start.elapsed().as_secs_f64() * 1000.0;
 
-        if skipped_invalid_nodes > 0 || skipped_invalid_edges > 0 {
+        if skipped_invalid_nodes > 0 || skipped_invalid_edges > 0 || stats.contributions_dropped > 0
+        {
             eprintln!(
-                "[m1nd-ingest] hygiene summary: skipped {} invalid nodes, {} invalid edges",
-                skipped_invalid_nodes, skipped_invalid_edges
+                "[m1nd-ingest] hygiene summary: skipped {} invalid nodes, {} invalid edges; dropped {} static contributions in all",
+                skipped_invalid_nodes, skipped_invalid_edges, stats.contributions_dropped
             );
         }
 
@@ -2127,6 +2269,141 @@ type Person struct {
             assert!(
                 graph.resolve_id(id).is_some(),
                 "every same-named definition must stay addressable; missing {id}"
+            );
+        }
+    }
+
+    /// The fence itself, for contributions no extractor disambiguated: the
+    /// first contribution met wins, later disagreeing ones (same source or
+    /// another one) are dropped and named, identical repeats pass through,
+    /// an id the graph cannot hold is dropped, and the run is never refused.
+    #[test]
+    fn the_static_contribution_fence_keeps_the_first_and_names_the_rest() {
+        use crate::extract::{ExtractedEdge, ExtractedNode};
+
+        let node = |id: &str, line: u32| ExtractedNode {
+            id: id.to_string(),
+            label: "Person".into(),
+            node_type: m1nd_core::types::NodeType::Struct,
+            tags: vec!["generic".into()],
+            line,
+            end_line: line,
+        };
+        let from = |source: &str, id: &str, line: u32| {
+            (
+                source.to_string(),
+                format!("file::{source}"),
+                node(id, line),
+            )
+        };
+        let shared = "file::docs/a.md::type::Person";
+        let nodes = vec![
+            from("docs/a.md", shared, 3),
+            from("docs/a.md", shared, 3), // identical repeat: admitted
+            from("docs/a.md", shared, 9), // same source, other line: dropped
+            from("docs/b.md", shared, 3), // other source claims the id: dropped
+            from("docs/b.md", " padded", 4), // invalid id: dropped
+        ];
+        let edge = |weight: f32| {
+            (
+                "docs/a.md".to_string(),
+                ExtractedEdge {
+                    source: "file::docs/a.md".into(),
+                    target: shared.into(),
+                    relation: "contains".into(),
+                    weight,
+                },
+            )
+        };
+        let edges = vec![edge(1.0), edge(1.0), edge(0.5)];
+
+        let mut stats = super::IngestStats::default();
+        let never = || false;
+        let cancellation = super::IngestCancellation::new(&never);
+        let fence = super::reconcile_static_contributions(
+            &nodes,
+            &edges,
+            &std::collections::HashMap::new(),
+            &mut stats,
+            &cancellation,
+        )
+        .expect("the fence never refuses the run over one source");
+
+        assert_eq!(fence.keep_nodes, vec![true, true, false, false, false]);
+        assert_eq!(fence.keep_edges, vec![true, true, false]);
+        assert_eq!(fence.invalid_nodes, 1);
+        assert_eq!(stats.contributions_dropped, 4);
+        let named = stats
+            .contribution_gaps
+            .iter()
+            .map(|gap| (gap.kind, gap.source_key.as_str()))
+            .collect::<Vec<_>>();
+        assert_eq!(
+            named,
+            vec![
+                ("conflicting_node_contribution", "docs/a.md"),
+                ("conflicting_node_contribution", "docs/b.md"),
+                ("invalid_node_id", "docs/b.md"),
+                ("conflicting_edge_contribution", "docs/a.md"),
+            ]
+        );
+        assert!(stats.contribution_gaps[0]
+            .detail
+            .contains("kept the first contribution (docs/a.md line 3"));
+
+        // The count stays exact past the bounded sample.
+        let many = (0..super::INGEST_CONTRIBUTION_GAP_SAMPLE_LIMIT as u32 + 8)
+            .map(|line| from("docs/a.md", shared, line + 1))
+            .collect::<Vec<_>>();
+        let mut stats = super::IngestStats::default();
+        super::reconcile_static_contributions(
+            &many,
+            &[],
+            &std::collections::HashMap::new(),
+            &mut stats,
+            &cancellation,
+        )
+        .expect("the fence never refuses the run over one source");
+        assert_eq!(
+            stats.contributions_dropped,
+            super::INGEST_CONTRIBUTION_GAP_SAMPLE_LIMIT as u64 + 7
+        );
+        assert_eq!(
+            stats.contribution_gaps.len(),
+            super::INGEST_CONTRIBUTION_GAP_SAMPLE_LIMIT
+        );
+    }
+
+    /// A conflict the fence resolves leaves a COMPLETE, owned graph: the first
+    /// definition is in the graph exactly once and the bundle passes its own
+    /// ownership audit.
+    #[test]
+    fn a_repeated_doc_example_yields_a_complete_ownership_bundle() {
+        let root = temp_ingest_dir("repeated-doc-example-bundle");
+        fs::create_dir_all(root.join("docs")).unwrap();
+        fs::write(root.join("docs/guide.md"), REPEATED_EXAMPLE_DOC).unwrap();
+        let bundle = Ingestor::new(IngestConfig {
+            root: root.clone(),
+            ..IngestConfig::default()
+        })
+        .ingest_bundle();
+        fs::remove_dir_all(&root).ok();
+        let bundle = bundle.expect("the repeated example must not abort the ingest");
+        assert_eq!(bundle.ownership.coverage, OwnershipCoverageV1::Complete);
+        assert_eq!(
+            bundle.stats.contributions_dropped, 0,
+            "distinct occurrences are disambiguated, not dropped: {:?}",
+            bundle.stats.contribution_gaps
+        );
+        let claims = &bundle.ownership.claims_by_source["docs/guide.md"];
+        for id in [
+            "file::docs/guide.md::type::Person",
+            "file::docs/guide.md::type::Person#2",
+            "file::docs/guide.md::type::Person#3",
+        ] {
+            assert!(
+                claims.node_ids.iter().any(|claimed| claimed == id),
+                "{id} must be owned by its source"
             );
         }
     }

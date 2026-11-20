@@ -514,6 +514,14 @@ pub struct ExtractionResult {
 /// The node `label` stays `name`, so search/seek still match by label. Mirrors
 /// `RustExtractor::unique_fn_id` but takes a node slice so the regex extractors
 /// (which build a bare `Vec<ExtractedNode>`) can share it.
+///
+/// Type-level ids (`::type::`, `::class::`, `::struct::`, `::interface::`,
+/// `::enum::`) follow the same rule. They used to be bare, and since every
+/// occurrence sits on a different line, a repeat reached the ingest's
+/// static-contribution fence as a conflict and refused the WHOLE run: one
+/// markdown guide repeating a Go example, a Python class defined per version
+/// branch, TypeScript interface merging or two nested Java `Builder`s each
+/// left an entire repository without a graph.
 pub fn unique_node_id(nodes: &[ExtractedNode], base_id: &str) -> String {
     if !nodes.iter().any(|n| n.id == base_id) {
         return base_id.to_string();

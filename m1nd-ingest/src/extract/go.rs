@@ -104,7 +104,8 @@ impl Extractor for GoExtractor {
             // ------------------------------------------------------------------
             let is_definition = if let Some(caps) = self.re_struct.captures(line) {
                 let name = caps.get(1).unwrap().as_str();
-                let node_id = format!("{}::struct::{}", file_id, name);
+                let node_id =
+                    super::unique_node_id(&nodes, &format!("{}::struct::{}", file_id, name));
                 nodes.push(ExtractedNode {
                     id: node_id.clone(),
                     label: name.to_string(),
@@ -122,7 +123,8 @@ impl Extractor for GoExtractor {
                 true
             } else if let Some(caps) = self.re_interface.captures(line) {
                 let name = caps.get(1).unwrap().as_str();
-                let node_id = format!("{}::interface::{}", file_id, name);
+                let node_id =
+                    super::unique_node_id(&nodes, &format!("{}::interface::{}", file_id, name));
                 nodes.push(ExtractedNode {
                     id: node_id.clone(),
                     label: name.to_string(),

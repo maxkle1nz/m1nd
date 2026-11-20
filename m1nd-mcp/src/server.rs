@@ -6107,6 +6107,15 @@ fn handle_north(
             "Binding is not full trust ({verdict}) — treat retrieval as orientation only and verify final truth against local files; see recovery_playbook for the repair."
         ));
     }
+    if let Some(dropped) = state
+        .ingest_contribution_gaps
+        .as_ref()
+        .and_then(|gaps| gaps["contributions_dropped"].as_u64())
+    {
+        honest_gaps.push(format!(
+            "The last code ingest dropped {dropped} static contribution(s) it could not admit instead of aborting — those definitions may be missing or folded into their first occurrence; health.ingest_gaps names them."
+        ));
+    }
     // Ground-truth count of the durable L1GHT store on disk. A beat that surfaced
     // no memory must NOT claim "no durable memory yet" when the store is non-empty
     // (MED-INV-6 false-absence): recall missing a task-relevant hit is not the same
@@ -15174,6 +15183,32 @@ mod tests {
             }),
         )
         .expect("north should succeed")
+    }
+
+    /// A code ingest that dropped contributions instead of aborting says so in
+    /// `north`'s honest gaps; a clean one adds no line.
+    #[test]
+    fn north_names_dropped_ingest_contributions_as_an_honest_gap() {
+        let (_temp, mut state) = build_state_populated(false);
+        let names_drop = |out: &serde_json::Value| {
+            out["honest_gaps"]
+                .as_array()
+                .expect("honest_gaps array")
+                .iter()
+                .any(|gap| {
+                    gap.as_str().is_some_and(|line| {
+                        line.starts_with("The last code ingest dropped 3 static contribution(s)")
+                    })
+                })
+        };
+        assert!(!names_drop(&bell_north_call(&mut state)));
+
+        state.ingest_contribution_gaps = Some(serde_json::json!({
+            "schema": "m1nd-ingest-contribution-gaps-v0",
+            "contributions_dropped": 3,
+        }));
+        let out = bell_north_call(&mut state);
+        assert!(names_drop(&out), "north must name the drop: {out}");
     }
 
     /// A mission whose current head is `merge_wait` rings the bell: the exact

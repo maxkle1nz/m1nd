@@ -916,6 +916,10 @@ fn a_doc_that_repeats_a_code_example_still_births_a_served_graph() {
         Some(identity.node_count),
         "health must keep serving the born graph: {health}"
     );
+    assert!(
+        health.get("ingest_gaps").is_none(),
+        "repeated examples are distinct occurrences, not dropped contributions: {health}"
+    );
     owner.shutdown();
 }
 

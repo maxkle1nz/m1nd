@@ -531,6 +531,12 @@ pub struct SessionState {
     /// How `workspace_root` was inferred. This is diagnostic-only and helps
     /// agents distinguish real repo roots from Codex runtime session folders.
     pub workspace_root_source: Option<String>,
+    /// What the last code ingest in THIS process dropped instead of refusing
+    /// the run (`m1nd-ingest-contribution-gaps-v0`), or `None` when it dropped
+    /// nothing. Served by `health.ingest_gaps` and one `north` honest gap.
+    /// Process-local on purpose: it describes a run, not the graph, and it is
+    /// outside every persisted and checkpoint-digested shape.
+    pub ingest_contribution_gaps: Option<serde_json::Value>,
     /// Per-wire-session caller root (hop-2 `M1nd-Caller-Root`); `None` = unknown
     /// (direct-HTTP / legacy bridge). Request-scoped: the HTTP layer stamps it
     /// from the incoming header before each dispatch, so a later call without the
@@ -2313,6 +2319,7 @@ impl SessionState {
             ingest_roots,
             workspace_root: Some(workspace_root.to_string_lossy().to_string()),
             workspace_root_source: Some(workspace_root_source),
+            ingest_contribution_gaps: None,
             caller_root: None,
             explicit_brain_selector: false,
             runtime_root: runtime_root.clone(),
