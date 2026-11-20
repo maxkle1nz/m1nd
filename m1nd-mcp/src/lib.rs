@@ -362,6 +362,11 @@ mod boot_temporal_state_drift_internal_tests;
 #[cfg(test)]
 #[path = "internal_tests/impact_co_change.rs"]
 mod impact_co_change_internal_tests;
+// `impact` causal-chain ceiling battery: reads the session's chain detector to
+// rebuild the uncapped list it compares against.
+#[cfg(test)]
+#[path = "internal_tests/impact_chain_cap.rs"]
+mod impact_chain_cap_internal_tests;
 
 // HTTP server + types (feature-gated behind "serve")
 #[cfg(feature = "serve")]
