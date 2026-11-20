@@ -425,20 +425,28 @@ fn attached_symbols_break_ties_by_node_index_and_repeat_exactly() {
 }
 
 #[test]
-fn edge_resolution_tags_share_one_prefix_and_stay_out_of_file_summaries() {
+fn graph_diagnostic_tags_share_their_prefixes_and_stay_out_of_file_summaries() {
     use m1nd_ingest::resolve::{ambiguous_edge_tag, EDGE_AMBIGUOUS_TAG, EDGE_UNRESOLVED_TAG};
     let ambiguous_target = ambiguous_edge_tag("file::src/a.rs::fn::b");
     for tag in [
         EDGE_UNRESOLVED_TAG,
         EDGE_AMBIGUOUS_TAG,
         ambiguous_target.as_str(),
-        // A future edge diagnostic needs no change here to stay out.
+        m1nd_ingest::INGEST_CONTRIBUTION_DROPPED_TAG,
+        // A future diagnostic of either family needs no change here to stay out.
         "m1nd:edge:shadowed",
+        "m1nd:ingest:truncated",
     ] {
-        assert!(super::l2_is_edge_diagnostic_tag(tag), "{tag}");
+        assert!(super::l2_is_graph_diagnostic_tag(tag), "{tag}");
     }
-    for tag in ["rust", "typescript", "m1nd:ui", "edge:unresolved"] {
-        assert!(!super::l2_is_edge_diagnostic_tag(tag), "{tag}");
+    for tag in [
+        "rust",
+        "typescript",
+        "m1nd:ui",
+        "edge:unresolved",
+        "ingest:x",
+    ] {
+        assert!(!super::l2_is_graph_diagnostic_tag(tag), "{tag}");
     }
 }
 

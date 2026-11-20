@@ -448,8 +448,10 @@ impl GraphIngestA2CandidateStatsV1 {
                 // The durable A2 candidate does not carry the walk's commit, so
                 // the graph it installs records no indexed commit (unknown).
                 vcs_head_oid: None,
-                // Not part of the persisted candidate shape (deny_unknown_fields
-                // across binary versions); a recovered candidate reports none.
+                // Zero by construction, not by omission: `build_complete_bundle_with_cancel`
+                // refuses every candidate that dropped a static contribution,
+                // so no persisted candidate ever carried one. The persisted
+                // shape (deny_unknown_fields) is unchanged.
                 contributions_dropped: 0,
                 contribution_gaps: Vec::new(),
             },
@@ -1561,6 +1563,29 @@ where
                 GraphIngestA2Error::new("graph_ingest_incomplete_candidate", error.to_string())
             }
         })?;
+    // The governed lane stays fail-closed: a candidate whose ingest dropped a
+    // static contribution (and would install a partial, marked graph) is never
+    // admitted here, whatever the ordinary ingest door accepts.
+    if bundle.stats.contributions_dropped > 0 {
+        let first = bundle
+            .stats
+            .contribution_gaps
+            .first()
+            .map(|gap| {
+                format!(
+                    "; first: {} from {:?} for {:?} ({})",
+                    gap.kind, gap.source_key, gap.subject, gap.detail
+                )
+            })
+            .unwrap_or_default();
+        return Err(GraphIngestA2Error::new(
+            "graph_ingest_contributions_dropped",
+            format!(
+                "candidate dropped {} static contribution(s) instead of admitting them{first}",
+                bundle.stats.contributions_dropped
+            ),
+        ));
+    }
     Ok(bundle)
 }
 
@@ -1929,6 +1954,33 @@ mod tests {
         assert_eq!(
             identity, bundle.ownership.root_identity,
             "canonical_root must match the identity ingest stamps into the bundle"
+        );
+    }
+
+    /// A2 never admits a partial candidate: an ingest that dropped a static
+    /// contribution (two `#[cfg]`-split enum variants contest one id) refuses
+    /// with a typed code naming the source and the id.
+    #[test]
+    fn a_candidate_that_dropped_a_contribution_is_refused_by_name() {
+        let temp = tempfile::tempdir().expect("A2 candidate root");
+        std::fs::write(
+            temp.path().join("backend.rs"),
+            "pub enum Backend {\n    #[cfg(unix)]\n    Native,\n    #[cfg(windows)]\n    Native,\n}\n",
+        )
+        .expect("A2 candidate source");
+        let root = temp.path().canonicalize().expect("canonical root");
+        let root = canonical_root(&root.to_string_lossy()).expect("canonical identity");
+        let error = build_complete_bundle(&root, false, &[])
+            .err()
+            .expect("a candidate with a dropped contribution must refuse");
+        assert_eq!(error.code, "graph_ingest_contributions_dropped");
+        assert!(
+            error.detail.contains("\"backend.rs\"")
+                && error
+                    .detail
+                    .contains("file::backend.rs::enum::Backend::Native"),
+            "{}",
+            error.detail
         );
     }
 

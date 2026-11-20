@@ -585,9 +585,10 @@ pub struct HealthOutput {
     /// (serde-skipped) when the graph is at HEAD or no commit is recorded.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub graph_drift: Option<serde_json::Value>,
-    /// What the last code ingest in this process dropped instead of refusing
-    /// the run (`m1nd-ingest-contribution-gaps-v0`); absent (serde-skipped)
-    /// when it dropped nothing.
+    /// Graph nodes an ingest marked `m1nd:ingest:contribution_dropped` because
+    /// a static contribution was dropped instead of refusing the run
+    /// (`m1nd-ingest-contribution-marks-v0`), read from the graph itself so it
+    /// survives restarts; absent (serde-skipped) when no node carries the mark.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub ingest_gaps: Option<serde_json::Value>,
 }
