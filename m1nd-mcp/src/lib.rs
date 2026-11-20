@@ -29,6 +29,9 @@ pub mod owner_authorization_broker;
 // No private key or implicit software signer is representable in this schema.
 pub mod auto_ingest;
 pub mod cli;
+/// Git co-change history behind `impact`'s `co_change` field (lenient runtime
+/// sidecar, never part of the strict checkpoint).
+mod co_change_history;
 /// The DOOR to the G9 Secure Enclave custody floor (`enclave_authority`). Present
 /// on every target on purpose: off macOS its steps REFUSE — `not_installed`, unless
 /// the platform-independent owner-presence gate already refused them — which is how

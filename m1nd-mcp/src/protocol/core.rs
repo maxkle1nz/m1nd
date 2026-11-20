@@ -500,6 +500,23 @@ pub struct ImpactOutput {
     pub total_blast_nodes: usize,
     /// True when blast_radius was capped by max_nodes.
     pub truncated: bool,
+    /// Files that historically changed in the same commits as the target's
+    /// file (git, commits of 2..=30 files), excluding the file itself and its
+    /// direct (hop-1) structural neighbours. At most five, at most ~1200 bytes;
+    /// absent without history.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub co_change: Option<Vec<CoChangePartnerOutput>>,
+}
+
+/// One historical co-change partner of an `impact` target.
+#[derive(Clone, Debug, Serialize)]
+pub struct CoChangePartnerOutput {
+    /// Path relative to the ingested root.
+    pub file: String,
+    /// Commits that changed both files.
+    pub together: u32,
+    /// Short sha of the most recent of those commits.
+    pub last: String,
 }
 
 #[derive(Clone, Debug, Serialize)]
