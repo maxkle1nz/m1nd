@@ -15,7 +15,8 @@ qualified or published (see [docs/RELEASE-2.0.0-PROPOSAL.md](docs/RELEASE-2.0.0-
 ### Breaking / Changed
 
 - **Leaner `file_group` seek rows:** a `file_group` row's `intent_summary` leaves out
-  every `m1nd:edge:*` edge-resolution tag (node rows keep them). Semantic `search`
+  every `m1nd:edge:*` edge-resolution tag and every `m1nd:ingest:*` ingest
+  diagnostic tag (node rows keep them). Semantic `search`
   inherits this: for a narrative query, a row without an excerpt takes its
   `matched_line` from the shorter summary. With `token_budget`, `seek` and `focus`
   count attached symbol ids, so they may keep fewer rows than before.
@@ -68,6 +69,17 @@ qualified or published (see [docs/RELEASE-2.0.0-PROPOSAL.md](docs/RELEASE-2.0.0-
 
 ### Fixed
 
+- **A contested static contribution no longer aborts a code ingest:** a markdown
+  guide repeating one code example, a class defined per version branch or two
+  `#[cfg]`-split enum variants made one external id carry two contributions,
+  and the whole ingest (including a first-time launcher birth) was refused.
+  Same-named type-level definitions in one source now take `#2`, `#3` ids, as
+  functions already did. A contribution the graph still cannot admit is
+  dropped (the first one met wins) and tagged `m1nd:ingest:contribution_dropped`
+  on the kept node and the dropping source's file node; `health.ingest_gaps`
+  and `north` read that mark back after restarts, and the governed A2 lane
+  refuses such a candidate. Unreadable sources, extractor errors and timeouts
+  still refuse the ingest.
 - **`/api/health` graph counts on a served owner:** when a tool call started the
   bound brain actor before the first `/api/health` read, health answered
   `node_count: 0`, `edge_count: 0` and `uptime_secs: 0` for the life of the

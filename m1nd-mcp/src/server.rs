@@ -6107,7 +6107,11 @@ fn handle_north(
             "Binding is not full trust ({verdict}) — treat retrieval as orientation only and verify final truth against local files; see recovery_playbook for the repair."
         ));
     }
-    let ingest_marks = crate::tools::ingest_contribution_marks_report(&state.graph.read());
+    // The marks describe THIS store's code graph: a brainless caller is served
+    // memory only, so a gap about another repo's graph would mislead it.
+    let ingest_marks = (!brainless_caller)
+        .then(|| crate::tools::ingest_contribution_marks_report(&state.graph.read()))
+        .flatten();
     if let Some(marked) = ingest_marks.and_then(|marks| marks["marked_node_count"].as_u64()) {
         honest_gaps.push(format!(
             "{marked} graph node(s) carry m1nd:ingest:contribution_dropped — an ingest dropped static contribution(s) there instead of refusing the run, so definitions may be missing or folded into their first occurrence; health.ingest_gaps names them."

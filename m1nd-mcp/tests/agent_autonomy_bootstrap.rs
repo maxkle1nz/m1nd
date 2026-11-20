@@ -980,6 +980,15 @@ fn a_dropped_contribution_stays_named_after_a_restart() {
     assert_dropped_contribution_is_named(&mut first);
     first.shutdown();
 
+    // Make the source clean before the restart: a re-ingest would now mint no
+    // mark, so a mark the restarted process still names can only come from
+    // the persisted graph.
+    std::fs::write(
+        workspace.join("src/backend.rs"),
+        "pub enum Backend {\n    #[cfg(unix)]\n    Native,\n    #[cfg(windows)]\n    Portable,\n}\n",
+    )
+    .expect("write clean variant source");
+
     let mut restarted = Owner::spawn(&workspace, &runtime);
     let reused = assert_symbol_is_retrievable(&mut restarted, &runtime);
     assert_eq!(
