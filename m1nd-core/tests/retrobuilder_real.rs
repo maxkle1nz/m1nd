@@ -32,6 +32,15 @@ fn ingest_m1nd() -> m1nd_core::graph::Graph {
         };
         let ingestor = Ingestor::new(config);
         let (graph, stats) = ingestor.ingest().unwrap();
+        // m1nd's own tree must ingest without dropping a static contribution:
+        // a drop marks the graph for good and the governed A2 lane refuses
+        // the whole candidate. Rust fixtures written as multi-line strings
+        // are read by the per-line extractor as real definitions.
+        assert_eq!(
+            stats.contributions_dropped, 0,
+            "m1nd's own tree dropped static contributions: {:?}",
+            stats.contribution_gaps
+        );
 
         eprintln!(
             "[REAL TEST] Ingest complete: {} nodes, {} edges, {} files parsed in {:.1}ms",

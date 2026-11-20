@@ -2164,16 +2164,11 @@ mod tests {
     }
 
     /// Two `#[cfg]`-split variants of one name. Rust variant ids carry no
-    /// occurrence suffix, so this is a real contested id for the fence.
-    const CFG_SPLIT_VARIANT_SOURCE: &str = "\
-pub enum Backend {
-    #[cfg(unix)]
-    Native,
-    #[cfg(windows)]
-    Native,
-    Portable,
-}
-";
+    /// occurrence suffix, so this is a real contested id for the fence. Kept on
+    /// ONE physical line: the per-line Rust extractor blanks a string only
+    /// within its line, so a multi-line literal here would be read as a real
+    /// enum and contest an id in m1nd's own source.
+    const CFG_SPLIT_VARIANT_SOURCE: &str = "pub enum Backend {\n    #[cfg(unix)]\n    Native,\n    #[cfg(windows)]\n    Native,\n    Portable,\n}\n";
     const CFG_SPLIT_VARIANT_ID: &str = "file::src/backend.rs::enum::Backend::Native";
 
     /// A doc that repeats one code example, shaped like a real Go web
