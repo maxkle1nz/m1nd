@@ -40,8 +40,8 @@ version branch, TypeScript interface merging) are distinct occurrences: the
 first keeps the clean id and later ones take `#2`, `#3`. A static contribution
 the graph still cannot admit — a disagreeing duplicate of an external id or
 edge, or an id the graph cannot hold — is dropped instead of aborting the run;
-the first contribution met wins. That run's ingest output names the exact
-drops (`ingest_gaps`, `m1nd-ingest-contribution-gaps-v0`). The durable notice
+the first contribution met wins. That run's ingest output counts every drop
+and names up to 32 of them (`ingest_gaps`, `m1nd-ingest-contribution-gaps-v0`). The durable notice
 is in the graph: the kept node and the dropping source's file node carry
 `m1nd:ingest:contribution_dropped`, which `health.ingest_gaps`
 (`m1nd-ingest-contribution-marks-v0`) and one `north` honest gap read back in
