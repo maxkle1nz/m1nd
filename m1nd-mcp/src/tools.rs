@@ -181,6 +181,7 @@ pub(crate) const RUNTIME_OWNED_ROOT_FILES: &[&str] = &[
     "document_artifact_inventory.json",
     "document_cache_index.json",
     "embeddings_cache.bin",
+    "indexed_vcs_state.json",
     "runtime.session",
     "temporal_state_v1.json",
     "verb_usage_state.json",
@@ -1236,6 +1237,7 @@ fn finalize_ingest_with_inventory(
     prepared_memory: Option<PreparedAgentMemoryRestore>,
 ) -> M1ndResult<serde_json::Value> {
     let mode = normalized_ingest_mode(&input.mode).to_string();
+    let walked_head_oid = stats.vcs_head_oid.clone();
     let namespace = input.namespace.clone().or_else(|| {
         if adapter == "memory" {
             Some("memory".to_string())
@@ -1539,6 +1541,24 @@ fn finalize_ingest_with_inventory(
         }
     }
     crate::co_change_history::seed_predict_matrix(state);
+
+    // The commit the graph was built from. A whole-graph install (`replace`,
+    // `refresh`) restates it: the walk's HEAD for a code scan of a directory,
+    // unknown for anything else. A `merge` adds to the graph without
+    // re-walking the root, so it leaves the recorded commit as it was. The
+    // advisory sidecar is published only once this graph is durable.
+    if mode != "merge" {
+        state.indexed_vcs = match walked_head_oid.as_deref() {
+            Some(oid) if adapter == "code" && input_path.is_dir() => {
+                Some(crate::graph_drift::IndexedCommit::new(
+                    oid,
+                    &crate::project_brains::ProjectBrainRegistry::canonical_key(&input.path),
+                ))
+            }
+            _ => None,
+        };
+        state.indexed_vcs_unpublished = true;
+    }
 
     if let Err(e) = state.persist() {
         eprintln!("[m1nd] auto-persist after ingest failed: {}", e);
@@ -4112,6 +4132,7 @@ pub fn handle_health(state: &mut SessionState, _input: HealthInput) -> M1ndResul
         .map(|tools| tools.len() as u64)
         .unwrap_or(0);
     let tool_tier = crate::server::active_tool_tier();
+    let graph_drift = crate::graph_drift::graph_drift_note(state);
 
     Ok(HealthOutput {
         status: "ok".into(),
@@ -4169,6 +4190,7 @@ pub fn handle_health(state: &mut SessionState, _input: HealthInput) -> M1ndResul
         // First-Contact Reception (§9.5.5): flags a caller_root mismatch; absent
         // (serde-skipped) on match / unknown caller.
         reception: state.reception_verdict(),
+        graph_drift,
     })
 }
 

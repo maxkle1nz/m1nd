@@ -35,6 +35,7 @@ classDiagram
         +landing_bell: Option~Value~ (present iff merge_wait>0)
         +map: Option~Value~ (present iff a SystemBlock store exists: ratified_blocks+coherence)
         +human_view: Option~HumanView~ (present iff composed)
+        +graph_drift: Option~Value~ (present iff indexed commit != caller checkout HEAD; graph_drift.rs)
         +proof_state: "triaging"
         +non_claims: [4 disclaimers]
     }

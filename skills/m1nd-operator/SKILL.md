@@ -64,7 +64,9 @@ measured high-signal pattern starts by never starting cold:
    declaring `total_lines` vs `lines_returned` and `truncated`. Read that payload
    instead of grepping or re-opening what north just named; widen the first call
    with `code_budget_chars` rather than paying a second round-trip, and pass
-   `code: false` when you want orientation only. `north` composes
+   `code: false` when you want orientation only. When `graph_drift` is present,
+   the graph is behind your checkout: run its `refresh` call, or read line
+   numbers as of `indexed`. `north` composes
    `trust_selftest` + `orient` + `boot_memory` + `focus` +
    `surgical_context`/`batch_view`; reach for the pieces directly only when you
    need just one. Heed `reception`:

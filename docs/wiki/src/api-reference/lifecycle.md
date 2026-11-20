@@ -54,6 +54,27 @@ callers).
 `north` composes `trust_selftest` + `orient` + `boot_memory` + `focus`. Reach
 for those pieces directly only when you need just one.
 
+When the graph was built at another commit than the checkout you work in,
+`north` (and `health`) carry one `graph_drift` note — and only then; a graph at
+HEAD adds no key and no byte:
+
+```json
+"graph_drift": {"behind": 1, "files_changed": 1, "head": "7a8b9c0d1e2f", "indexed": "1a2b3c4d5e6f",
+                "refresh": {"tool": "ingest", "mode": "refresh", "path": "/absolute/path/to/repo"}}
+```
+
+`indexed` is the commit the code ingest walked, `head` your checkout's HEAD,
+`behind` the commits in HEAD but not in the indexed commit (`ahead` appears only
+when the indexed commit holds commits HEAD lacks), `files_changed` the files that
+differ between the two under the indexed root (`null` = could not be measured).
+`refresh` is the exact call that brings the graph to HEAD. Until you run it, read
+line numbers as of `indexed` and verify against local files. When your root sits
+in a git worktree of the indexed repository nested inside its root, the note
+compares against that worktree and names it in `checkout` instead of `refresh`:
+a refresh of the bound root would not move the graph to your commit. A worktree
+outside the indexed root gets `reception.match == "caller_root_mismatch"`. The
+check is read-only and costs one `git rev-parse` per call at a matching HEAD.
+
 When a SystemBlock store exists, `north` also carries its coherence vital sign
 through `honest_gaps`. A mismatch names both the serving brain's expected slug
 and the skeleton's found slug as a **signal only**; it never blocks reads or
@@ -368,6 +389,8 @@ Stop active document watchers and persist the manifest state.
 
 ## `health`
 Server health and statistics. Returns node/edge counts, query count, uptime, memory usage, plasticity state, and active sessions.
+When the graph's indexed commit differs from your checkout's HEAD it also carries the same
+`graph_drift` note as [`north`](#m1ndnorth); at HEAD the key is absent.
 
 ### Parameters
 

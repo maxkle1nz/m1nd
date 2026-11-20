@@ -213,6 +213,8 @@ this loop by default:
    (it consults the live mutation policy: generic `ingest` where allowed;
    otherwise `blocked`, naming the real repair — a refresh you run, or the
    human's one-time `m1nd init --birth <repo>` you offer) → `north` again.
+   If the packet carries `graph_drift`, the graph was built at another commit than
+   your checkout: run its `refresh` call, or read line numbers as of `indexed`.
 2. If trust is degraded or retrieval comes back `blocked`/empty unexpectedly,
    drop to `recovery_playbook` before interpreting absence.
    `wrong_workspace_binding` means rebind, intentional ingest, or real
