@@ -19,6 +19,8 @@ When the brain's root is a git repository, `impact` also answers "what else usua
 | `agent_id` | `string` | Yes | -- | Calling agent identifier. |
 | `direction` | `string` | No | `"forward"` | Propagation direction. Values: `"forward"` (what does this affect?), `"reverse"` (what affects this?), `"both"`. |
 | `include_causal_chains` | `boolean` | No | `true` | Include causal chain detection. Shows the specific paths through which impact propagates. |
+| `max_causal_chains` | `integer` | No | `20` | Maximum causal chains returned, strongest first. The detector can find thousands of chains on a real repository (several MB of answer); the default keeps the strongest 20. Pass `total_causal_chains` from a previous answer, or any larger number, to get the full list. |
+| `max_nodes` | `integer` | No | `150` | Maximum blast-radius entries returned. |
 
 ### Example Request
 
@@ -60,12 +62,18 @@ When the brain's root is a git repository, `impact` also answers "what else usua
       "cumulative_strength": 0.82
     }
   ],
+  "total_blast_nodes": 3,
+  "truncated": false,
+  "total_causal_chains": 1,
+  "causal_chains_truncated": false,
   "co_change": [
     { "file": "docs/chat.md", "together": 6, "last": "9c41e07b2a" },
     { "file": "pyproject.toml", "together": 3, "last": "51d0aa3c8e" }
   ]
 }
 ```
+
+`causal_chains` is ordered strongest first and capped by `max_causal_chains`: a capped list is always the first entries of the uncapped one, in the same order. `total_causal_chains` counts every chain found and `causal_chains_truncated` is `true` when some were left out. The blast radius, its order, scores and energy do not depend on the chain cap.
 
 <a id="impact-co-change"></a>
 
