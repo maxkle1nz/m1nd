@@ -74,7 +74,17 @@ pub struct ImpactInput {
     /// Set higher (or None/omit) to get the full set.
     #[serde(default)]
     pub max_nodes: Option<usize>,
+    /// Maximum causal chains to return, strongest first. Default:
+    /// [`DEFAULT_IMPACT_CAUSAL_CHAINS`]. Pass `total_causal_chains` from a
+    /// previous answer (or any larger number) to get the full list.
+    #[serde(default)]
+    pub max_causal_chains: Option<usize>,
 }
+
+/// Causal chains `impact` returns unless the caller raises
+/// `max_causal_chains`: the detector can find thousands, and each one is a
+/// path of labels the agent has to read.
+pub const DEFAULT_IMPACT_CAUSAL_CHAINS: usize = 20;
 
 /// Input for m1nd.missing (03-MCP Section 2.3).
 #[derive(Clone, Debug, Deserialize)]
@@ -500,6 +510,10 @@ pub struct ImpactOutput {
     pub total_blast_nodes: usize,
     /// True when blast_radius was capped by max_nodes.
     pub truncated: bool,
+    /// Causal chains found before `max_causal_chains` was applied.
+    pub total_causal_chains: usize,
+    /// True when causal_chains was capped by max_causal_chains.
+    pub causal_chains_truncated: bool,
     /// Files that historically changed in the same commits as the target's
     /// file (git, commits of 2..=30 files), excluding the file itself and its
     /// direct (hop-1) structural neighbours. At most five, at most ~1200 bytes;

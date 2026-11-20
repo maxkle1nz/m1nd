@@ -1138,7 +1138,8 @@ fn all_tool_schemas_inner() -> serde_json::Value {
                             "default": "forward",
                             "description": "Propagation direction for impact analysis"
                         },
-                        "include_causal_chains": { "type": "boolean", "default": true, "description": "Include causal chain detection" }
+                        "include_causal_chains": { "type": "boolean", "default": true, "description": "Include causal chain detection" },
+                        "max_causal_chains": { "type": "integer", "minimum": 0, "default": 20, "description": "Maximum causal chains returned, strongest first. The answer reports total_causal_chains and causal_chains_truncated; pass total_causal_chains (or more) to get the full list." }
                     },
                     "required": ["node_id", "agent_id"]
                 }

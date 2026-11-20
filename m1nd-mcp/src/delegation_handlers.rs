@@ -969,6 +969,7 @@ fn static_dependents(
             direction: "reverse".into(),
             include_causal_chains: false,
             max_nodes: Some(max_nodes),
+            max_causal_chains: None,
         },
     );
     match out {

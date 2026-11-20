@@ -2101,6 +2101,8 @@ pub fn handle_impact(state: &mut SessionState, input: ImpactInput) -> M1ndResult
                 total_blast_nodes: 0,
                 truncated: false,
                 co_change: None,
+                total_causal_chains: 0,
+                causal_chains_truncated: false,
             });
         }
     };
@@ -2327,8 +2329,16 @@ pub fn handle_impact(state: &mut SessionState, input: ImpactInput) -> M1ndResult
             )
         });
 
+    // The detector returns its chains strongest first; keep that order and cut
+    // the tail, so a capped answer is always a prefix of the uncapped one.
+    let total_causal_chains = chains.len();
+    let chain_cap = input
+        .max_causal_chains
+        .unwrap_or(crate::protocol::core::DEFAULT_IMPACT_CAUSAL_CHAINS);
+    let causal_chains_truncated = total_causal_chains > chain_cap;
     let causal_chains: Vec<CausalChainOutput> = chains
         .iter()
+        .take(chain_cap)
         .map(|c| {
             let path: Vec<String> = c
                 .path
@@ -2391,6 +2401,8 @@ pub fn handle_impact(state: &mut SessionState, input: ImpactInput) -> M1ndResult
         total_blast_nodes,
         truncated,
         co_change,
+        total_causal_chains,
+        causal_chains_truncated,
     })
 }
 
@@ -6158,6 +6170,7 @@ mod tests {
                 direction: "forward".into(),
                 include_causal_chains: false,
                 max_nodes: Some(5),
+                max_causal_chains: None,
             },
         )
         .expect("impact should succeed");
@@ -6722,6 +6735,7 @@ mod tests {
                 direction: "reverse".into(),
                 include_causal_chains: false,
                 max_nodes: None,
+                max_causal_chains: None,
             },
         )
         .expect("impact should succeed");
