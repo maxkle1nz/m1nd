@@ -22,6 +22,8 @@ Unlike `activate` (which propagates signal through edges), `seek` scores every n
 | `node_types` | `string[]` | No | `[]` | Filter by node type: `"function"`, `"class"`, `"struct"`, `"module"`, `"file"`. Empty = all types. |
 | `min_score` | `number` | No | `0.1` | Minimum combined score threshold. Range: 0.0 to 1.0. |
 | `graph_rerank` | `boolean` | No | `true` | Whether to run graph re-ranking (PageRank weighting) on candidates. Disable for pure text matching. |
+| `token_budget` | `integer` | No | -- | Approximate context-token budget (chars/4). Keeps the highest-ranked rows that fit and reports a `budget` block. Rows are measured with their diagnostics, so `detail` does not change which rows are kept. |
+| `detail` | `boolean` | No | `false` | Also return each row's diagnostics (`connections`, `heuristic_signals`, `score_breakdown`) and its full `intent_summary`. See [Default rows and `detail`](#default-rows-and-detail). |
 
 **Filters are eligibility gates.** `scope` and `node_types` apply before lexical scoring,
 symbolic-semantic candidate limits, and static-embedding recall. Excluded nodes cannot
@@ -103,23 +105,65 @@ only re-orders within the relevance-cleared pool; it never drops a node. With no
       "label": "validate_credentials",
       "type": "function",
       "score": 0.87,
-      "score_breakdown": {
-        "embedding_similarity": 0.92,
-        "graph_activation": 0.78,
-        "temporal_recency": 0.65
-      },
-      "intent_summary": "Validates user credentials against provider store",
+      "intent_summary": "validate_credentials (function) [python]",
       "file_path": "backend/auth_discovery.py",
       "line_start": 45,
-      "line_end": 82,
-      "connections": [
-        { "node_id": "file::principal_registry.py", "label": "principal_registry.py", "relation": "calls" }
-      ]
+      "line_end": 82
     }
   ],
   "total_candidates_scanned": 9767,
   "embeddings_used": false,
   "elapsed_ms": 25.0
+}
+```
+
+### Default rows and `detail`
+
+A default row carries what an agent acts on: `node_id`, `label`, `type`, `score`, a
+short `intent_summary`, `file_path`, `line_start`/`line_end`, `symbols` (on the first
+ten `file_group` rows), any `excerpt`, and the provenance of memory hits
+(`authored_ms_ago`, `source_agent`, `origin_brain`).
+
+- **Intent line.** The default `intent_summary` has the `label (type) [tags]` shape
+  without any `m1nd:edge:*` tag, cut on a character boundary to at most 120
+  characters. A cut line ends in `…`.
+- **Diagnostics.** With `detail: true`, each row also carries `connections` (up to five
+  outgoing edges), `heuristic_signals` (the trust and tremor priors, including
+  `trust_band`) and `score_breakdown`, and `intent_summary` is the full summary
+  described below. These rows are the same, byte for byte, as rows were before the
+  diagnostics became opt-in.
+- **Unchanged.** Row ids, order, scores and count, and every field outside `results`
+  (`budget`, `sufficiency`, `trust_envelope`, counts, next step) are the same with or
+  without `detail`. The trust envelope still reads the top rows' `trust_band` either way.
+- **Consumers.** `focus` and semantic `search` read seek's full rows, so their output
+  does not change. `north` reads only the memory provenance fields.
+
+```json
+{
+  "node_id": "file::auth_discovery.py::fn::validate_credentials",
+  "label": "validate_credentials",
+  "type": "function",
+  "score": 0.87,
+  "score_breakdown": {
+    "embedding_similarity": 0.92,
+    "graph_activation": 0.78,
+    "temporal_recency": 0.65
+  },
+  "heuristic_signals": {
+    "heuristic_factor": 0.99,
+    "trust_risk_multiplier": 1.0,
+    "trust_band": "insufficient_evidence",
+    "trust_tier": "Unknown",
+    "tremor_observation_count": 0,
+    "reason": "neutral heuristics"
+  },
+  "intent_summary": "validate_credentials (function) [python]",
+  "file_path": "backend/auth_discovery.py",
+  "line_start": 45,
+  "line_end": 82,
+  "connections": [
+    { "node_id": "file::principal_registry.py", "label": "principal_registry.py", "relation": "calls" }
+  ]
 }
 ```
 
@@ -149,10 +193,12 @@ span to open. There is no excerpt.
   same key the file ranking uses.
 - **When absent.** The field is omitted when a file has no eligible symbol, on rows after
   the tenth, in `"node"` granularity, and when `node_types` is `["file"]`.
-- **Summary.** A `file_group` row's `intent_summary` (`label (type) [tags]`) leaves out
-  every `m1nd:edge:*` edge-resolution tag, which can run to thousands of characters on a
-  file. `"node"` rows keep every tag. Semantic `search` inherits this: for a narrative
-  query, a row without an excerpt takes its `matched_line` from that shorter summary.
+- **Summary.** With `detail: true`, a `file_group` row's `intent_summary`
+  (`label (type) [tags]`) leaves out every `m1nd:edge:*` edge-resolution tag, which can
+  run to thousands of characters on a file, and `"node"` rows keep every tag. Default
+  rows send the short intent line instead (see above). Semantic `search` reads the full
+  rows: for a narrative query, a row without an excerpt takes its `matched_line` from the
+  `file_group` summary.
 - **Budget.** With `token_budget`, each row's estimate includes its symbol ids, so a
   budget may keep fewer rows than it would without them. `focus` inherits this.
 - **Unchanged.** The rows themselves (their `node_id`s, order, scores, count and

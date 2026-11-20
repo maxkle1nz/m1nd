@@ -847,6 +847,7 @@ fn recall_memory_slice(state: &mut SessionState, agent_id: &str, task: &str) -> 
             graph_rerank: true,
             conformance_aware: true,
             token_budget: None,
+            detail: false,
         },
     )
     .map(|o| o.results)

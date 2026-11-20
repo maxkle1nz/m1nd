@@ -449,13 +449,14 @@ mod tests {
                 label: "m1nd-core".into(),
                 node_type: "module".into(),
                 score: 0.78,
-                score_breakdown: SeekScoreBreakdown {
+                score_breakdown: Some(SeekScoreBreakdown {
                     embedding_similarity: 0.7,
                     graph_activation: 0.1,
                     temporal_recency: 0.0,
-                },
+                }),
                 heuristic_signals: None,
                 intent_summary: "crate".into(),
+                intent_line: "crate".into(),
                 file_path: Some("~/m1nd/m1nd-core/Cargo.toml".into()),
                 line_start: None,
                 line_end: None,
@@ -463,11 +464,11 @@ mod tests {
                 authored_ms_ago: None,
                 source_agent: None,
                 origin_brain: None,
-                connections: vec![SeekConnection {
+                connections: Some(vec![SeekConnection {
                     node_id: "x".into(),
                     label: "x".into(),
                     relation: "imports".into(),
-                }],
+                }]),
                 symbols: vec![],
             },
             SeekResultEntry {
@@ -475,13 +476,14 @@ mod tests {
                 label: "impl Extractor for RustExtractor".into(),
                 node_type: "module".into(),
                 score: 0.77,
-                score_breakdown: SeekScoreBreakdown {
+                score_breakdown: Some(SeekScoreBreakdown {
                     embedding_similarity: 0.69,
                     graph_activation: 0.11,
                     temporal_recency: 0.0,
-                },
+                }),
                 heuristic_signals: None,
                 intent_summary: "impl".into(),
+                intent_line: "impl".into(),
                 file_path: Some("~/m1nd/m1nd-ingest/src/extract/rust_lang.rs".into()),
                 line_start: Some(1),
                 line_end: Some(4),
@@ -489,7 +491,7 @@ mod tests {
                 authored_ms_ago: None,
                 source_agent: None,
                 origin_brain: None,
-                connections: vec![],
+                connections: Some(vec![]),
                 symbols: vec![],
             },
         ];

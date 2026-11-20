@@ -2427,6 +2427,7 @@ fn store_memory_rows(
             graph_rerank: true,
             conformance_aware: true,
             token_budget: None,
+            detail: false,
         },
     );
     let now = now_ms();

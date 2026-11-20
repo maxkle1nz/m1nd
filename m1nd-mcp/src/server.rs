@@ -1695,7 +1695,8 @@ fn all_tool_schemas_inner() -> serde_json::Value {
                         "node_types": { "type": "array", "items": { "type": "string" }, "default": [], "description": "Filter by node type: function, class, struct, module, file" },
                         "min_score": { "type": "number", "default": 0.1, "description": "Minimum combined score threshold" },
                         "graph_rerank": { "type": "boolean", "default": true, "description": "Whether to run graph re-ranking on embedding candidates" },
-                        "token_budget": { "type": "integer", "minimum": 1, "description": "Optional approx context-token budget. m1nd keeps the highest graph-importance hits that fit, drops the rest, and returns a 'budget' block (estimate = chars/4, not exact tokenization)" },
+                        "token_budget": { "type": "integer", "minimum": 1, "description": "Optional approx context-token budget. m1nd keeps the highest graph-importance hits that fit, drops the rest, and returns a 'budget' block (estimate = chars/4, not exact tokenization, measured on the full detail rows)" },
+                        "detail": { "type": "boolean", "default": false, "description": "Also return each row's diagnostics: connections, heuristic_signals, score_breakdown and the full intent_summary. Default false: rows carry node_id, label, type, score, a short intent line (at most 120 chars, no m1nd:edge tags), file_path, line span, symbols and memory provenance. Row ids, order, scores, counts and every field outside results are the same either way." },
                         "tier": { "type": "string", "enum": ["project", "medulla", "project+medulla", "all-brains"], "description": "Memory-tier for cross-brain recall (pull-not-push). Default project+medulla: this brain's own memory + the shared medulla (promoted/doctrine). 'all-brains' fans out over EVERY hosted brain, each hit labeled origin_brain — the explicit cross-project inspection, never ambient. A claim from another brain only reaches your default beat if it was promoted to the medulla." }
                     },
                     "required": ["query", "agent_id"]
@@ -5947,6 +5948,7 @@ fn handle_north(
                     graph_rerank: true,
                     conformance_aware: true,
                     token_budget: None,
+                    detail: false,
                 },
             )
             .map(|o| o.results.into_iter().filter(|r| is_light_hit(r)).collect())
