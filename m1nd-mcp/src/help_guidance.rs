@@ -22,8 +22,14 @@ pub struct HelpCatalogEntry {
     pub category: String,
     pub glyph: String,
     pub one_liner: String,
+    /// The registry schema description: the full text the lean `tools/list`
+    /// menu leaves out. `help(tool_name)` renders it when it differs from the
+    /// one-liner.
+    pub description: String,
     pub returns: String,
     pub params: Vec<HelpParamSpec>,
+    /// Fields of object-shaped parameters (`claims[].evidence`), one level deep.
+    pub fields: Vec<HelpParamSpec>,
     pub minimal_arguments: Value,
     pub next: Vec<String>,
     pub aliases: Vec<String>,
@@ -123,8 +129,10 @@ fn build_catalog_entries() -> Vec<HelpCatalogEntry> {
                 category,
                 glyph,
                 one_liner,
+                description: schema.description,
                 returns,
                 params: schema.params,
+                fields: schema_fields(&schema.input_schema),
                 minimal_arguments,
                 next,
                 aliases,
@@ -346,6 +354,37 @@ pub fn build_recovery_resolution(input: &HelpInput) -> HelpResolution {
     }
 }
 
+/// One doctrine card behind the server instructions, or the list of cards when
+/// `requested` names none. The text is the whole answer, so `render` does not
+/// apply: a card asked for by name is always returned.
+pub fn build_topic_resolution(requested: &str) -> HelpResolution {
+    match crate::help_topics::find(requested) {
+        Some(topic) => HelpResolution {
+            formatted: crate::help_topics::render(topic),
+            guidance: None,
+            found: true,
+            suggestions: vec![],
+            tool: None,
+            proof_state: "triaging".into(),
+        },
+        None => HelpResolution {
+            formatted: format!(
+                "unknown help topic {:?}.\n{}",
+                requested.trim(),
+                crate::help_topics::render_index()
+            ),
+            guidance: None,
+            found: false,
+            suggestions: crate::help_topics::ids()
+                .into_iter()
+                .map(str::to_string)
+                .collect(),
+            tool: None,
+            proof_state: "blocked".into(),
+        },
+    }
+}
+
 pub fn runtime_projection_from_guidance(
     guidance: Option<&HelpGuidance>,
     proof_state: impl Into<String>,
@@ -432,6 +471,7 @@ pub fn runtime_error_guidance_hint(tool_name: &str, detail: &str) -> String {
         recent_tools: vec![],
         max_suggestions: Some(3),
         render: Some(HelpRender::None),
+        topic: None,
     };
     let resolution = build_recovery_resolution(&input);
     let projection = runtime_projection_from_resolution(&resolution, "blocked");
@@ -537,6 +577,30 @@ fn schema_params(input_schema: &Value) -> Vec<HelpParamSpec> {
                 .collect()
         })
         .unwrap_or_default()
+}
+
+/// The fields of every object-shaped parameter, one level deep, named the way
+/// a caller writes them: `claims[].evidence` for an array of objects,
+/// `filter.kind` for an object.
+fn schema_fields(input_schema: &Value) -> Vec<HelpParamSpec> {
+    let Some(properties) = input_schema.get("properties").and_then(Value::as_object) else {
+        return vec![];
+    };
+    let mut fields = Vec::new();
+    for (name, schema) in properties {
+        let (prefix, object) = match schema.get("items") {
+            Some(items) if items.get("properties").is_some() => (format!("{name}[]"), items),
+            _ if schema.get("properties").is_some() => (name.clone(), schema),
+            _ => continue,
+        };
+        for field in schema_params(object) {
+            fields.push(HelpParamSpec {
+                name: format!("{prefix}.{}", field.name),
+                ..field
+            });
+        }
+    }
+    fields
 }
 
 fn choose_minimal_arguments(
@@ -2020,6 +2084,11 @@ fn render_tool(entry: &HelpCatalogEntry, guidance: &HelpGuidance, compact: bool)
 
     render_section_title(&mut out, "WHY");
     out.push_str(&format!("  - {}\n", entry.one_liner));
+    // The lean `tools/list` menu carries a short card; the full registry text
+    // lives here, so a curated one-liner never hides it.
+    if !compact && !entry.description.is_empty() && !entry.one_liner.contains(&entry.description) {
+        out.push_str(&format!("  - In full: {}\n", entry.description));
+    }
     if !entry.returns.is_empty() {
         out.push_str(&format!("  - Returns: {}\n", entry.returns));
     }
@@ -2041,24 +2110,65 @@ fn render_tool(entry: &HelpCatalogEntry, guidance: &HelpGuidance, compact: bool)
             out.push_str(&format!("  - {} — {}\n", param.name, param.description));
         }
     }
-    let optional: Vec<String> = entry
+    let optional: Vec<&HelpParamSpec> = entry
         .params
         .iter()
         .filter(|param| !param.required)
-        .map(|param| param.name.clone())
         .collect();
-    if !optional.is_empty() {
-        let max = if compact { 4 } else { 8 };
+    if compact && !optional.is_empty() {
         out.push_str(&format!(
             "  - optional knobs: {}\n",
             optional
-                .into_iter()
-                .take(max)
+                .iter()
+                .take(4)
+                .map(|param| param.name.as_str())
                 .collect::<Vec<_>>()
                 .join(", ")
         ));
     }
     out.push('\n');
+
+    // Every optional parameter with its default and description: the detail
+    // the lean `tools/list` menu leaves out is served here, on pull.
+    if !compact && !optional.is_empty() {
+        render_section_title(&mut out, "OPTIONAL INPUT");
+        for param in optional {
+            let default = param
+                .default
+                .as_ref()
+                .map(|value| format!(" (default {})", render_inline_json(value)))
+                .unwrap_or_default();
+            if param.description.is_empty() {
+                out.push_str(&format!("  - {}{}\n", param.name, default));
+            } else {
+                out.push_str(&format!(
+                    "  - {}{} — {}\n",
+                    param.name, default, param.description
+                ));
+            }
+        }
+        out.push('\n');
+    }
+    if !compact && !entry.fields.is_empty() {
+        render_section_title(&mut out, "FIELDS");
+        for field in &entry.fields {
+            let required = if field.required { " (required)" } else { "" };
+            let default = field
+                .default
+                .as_ref()
+                .map(|value| format!(" (default {})", render_inline_json(value)))
+                .unwrap_or_default();
+            if field.description.is_empty() {
+                out.push_str(&format!("  - {}{required}{default}\n", field.name));
+            } else {
+                out.push_str(&format!(
+                    "  - {}{required}{default} — {}\n",
+                    field.name, field.description
+                ));
+            }
+        }
+        out.push('\n');
+    }
 
     render_section_title(&mut out, "MINIMAL CALL");
     if let Some(call) = guidance.minimal_calls.first() {
@@ -2143,6 +2253,10 @@ fn render_overview(
     out.push_str("  - help(stage=\"plan\", intent=\"validate a risky change\") for a route\n");
     out.push_str("  - help(error_text=\"...\") for failure recovery\n");
     out.push_str("  - help(mode=\"workflow\", stage=\"edit\") for a full sequence\n");
+    out.push_str(&format!(
+        "  - help(topic=\"voice\") for the doctrine behind the instructions: {}\n",
+        crate::help_topics::ids().join(", ")
+    ));
 
     if show_temponizer {
         out.push('\n');
@@ -2514,6 +2628,7 @@ mod tests {
             recent_tools: vec![],
             max_suggestions: None,
             render: Some(HelpRender::Full),
+            topic: None,
         }
     }
 

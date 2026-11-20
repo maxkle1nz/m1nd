@@ -179,6 +179,12 @@ export CARGO_TARGET_DIR="$(scripts/cargo_target_dir.sh)"   # deterministic, per-
   - `help` catalogs the full 147-verb registry at every tier (`help_guidance::schema_tools` reads
     `all_tool_schemas`). Battery: `server::tests::core_menu_*` and
     `help_sees_every_verb_regardless_of_tier`.
+- **The session card — pull, never push:** every session pays for `M1ND_INSTRUCTIONS` and the
+  default `tools/list` before its first call. The instructions stay an operating card (≤ 6,000
+  characters) and the menu serves `CORE_MENU_CARDS` with prose-free input schemas (≤ 10,000
+  characters, ≤ 1,200 per tool), pinned on the real binary by `m1nd-mcp/tests/session_card_budget.rs`.
+  New doctrine goes into a `help {topic}` card (`m1nd-mcp/src/help_topics.rs`) and new parameter
+  prose into the registry, which `help(tool_name)` serves; never back into the push surface.
 - **REST route seating:** `POST /api/tools/{tool}` runs the generic floor gate
   (`enforce_generic_action_policy`) before generic dispatch. Every verb with custom interception in
   `handle_tool_call` (owner→daemon proxies `mission_spawn`, `candidate_naming`, `curation_spawn` and
@@ -308,8 +314,8 @@ colors the map):
   mission-letter board), and close with `mission_close`. Cards are single-writer (`ensure_agent`
   enforces matching `agent_id`). Over REST, pass `?brain=<root>`.
 - **The voice:** render `north`'s `human_view` card verbatim under the cadence in
-  `M1ND_INSTRUCTIONS` §7 — never re-compose it or invent statistics. `cockpit` is the on-request
-  read-only navigable menu.
+  `M1ND_INSTRUCTIONS` (full card law: `help {topic: "voice"}`) — never re-compose it or invent
+  statistics. `cockpit` is the on-request read-only navigable menu.
 - **Presences & Universe:** activity registers via `m1nd-presence-v0` (`m1nd-mcp/src/presence.rs`).
   Overlapping mutation signals on the same brain emit an advisory collision line on `north` — stop
   and coordinate rather than forcing writes. `GET /api/universe` is sidecar-only (never hydrates a

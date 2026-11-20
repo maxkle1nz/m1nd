@@ -35,320 +35,91 @@ const STDIO_ACTOR_SHUTDOWN_GRACE: Duration = Duration::from_secs(60);
 // ---------------------------------------------------------------------------
 // MCP protocol instructions — injected into initialize response so agents
 // automatically understand how to use m1nd effectively.
+//
+// Every session pays for this text before its first call, so it is an operating
+// card, not the manual: the loop, the honest answers, the write laws and the
+// door. The doctrine it used to push in full is served on pull by
+// `help {topic}` (`help_topics.rs`). The budget is pinned on the real server by
+// `tests/session_card_budget.rs`.
 // ---------------------------------------------------------------------------
 const M1ND_INSTRUCTIONS: &str = "\
-m1nd is a neuro-symbolic code graph over this repo. It answers with bounded \
-trust, not vibes: absent / null / abstain / insufficient_evidence are REAL answers — \
-prefer them over guessing. Every tool call needs an `agent_id`. Knowledge is shared: \
-what one agent proves and memorizes, the next agent reads. Operate in a loop.
+m1nd is a neuro-symbolic code graph over this repo. It answers with bounded trust, not vibes: \
+absent / null / abstain / reverify / insufficient_evidence are REAL answers — prefer them over \
+guessing. Every tool call needs an `agent_id`. Knowledge is shared: what one agent proves and \
+memorizes, the next agent reads. This is the operating card; the full doctrine is one `help \
+{topic}` away (pull, never push).
 
-## 0. FIRST CONTACT — heed reception
+## The loop
+1. `north(task)` FIRST, before reading or editing anything. One call returns binding trust, \
+focus nodes, prior memory with its real age + author, one `next_move`, `honest_gaps`, and \
+`code` — the source of the top focus nodes. Read that code before you fetch anything again.
+2. `seek(query)` finds code by purpose. Obey its `trust_envelope` and sufficiency signal: \
+`sufficient` means stop gathering.
+3. `impact(node)` before you change it, and read its `co_change` (files that historically \
+change with the target) before you call the change done.
+4. `memorize` every durable finding as claims with `confidence` and repo-relative `evidence` \
+paths. Evidence anchors a claim to code, so it surfaces in later `seek`/`north` and self-flags \
+as stale via `cross_verify(check:[\"evidence_freshness\"])` when that code changes.
+Then report, never detour: when m1nd itself misbehaves, append one JSON line to \
+`~/.m1nd/field-reports.jsonl` (local-only, never phones home). `learn(correct|wrong)` and \
+`mission_close write_light_memory:true` sit above the authority floor today.
 
-A response may carry a `reception` block. `reception.match == \"caller_root_mismatch\"` \
-means the bound graph does NOT cover your current repo (its root ≠ your resolved \
-`caller_root`) — do NOT trust retrieval for THIS repo; read `reception.options[]`. \
-Generic cross-root `ingest` remains withdrawn (no `project_root` in the schema; \
-POSITIVE_SOVEREIGN, fails closed), and the birth verb refuses every wire client with \
-`human_gesture_required` — but a repo with NO brain now has a real path: the HUMAN \
-runs the one-time ceremony `m1nd init --birth <repo>`. An agent's honest move is to \
-OFFER that exact command and stop; running it is not the agent's to do. Until the human runs it: continue only against the bound graph (with the mismatch \
-warning intact), or reconnect to an owner that already hosts the intended repo. Absent \
-`reception` = your root matches the brain serving you (silent bind is legal only on a \
-match, TT-INV-12).
+## Honest answers
+- `act` / `reverify` / `abstain`: `abstain` means unqualified or insufficient evidence — do \
+NOT guess past it. Existing v1 calibration rows are `legacy_evidence_unqualified`. \
+`calibrate_predict` and `calibrate_envelope` measure diagnostic aggregates only; they cannot \
+arm `act`.
+- `trust_band: insufficient_evidence` means NO evidence — not medium risk.
+- A `why` closure of `blocked` rests on an unresolved edge: verify that edge before you rely \
+on the path.
 
-**Reception governs WRITES, not just reads.** A read under `caller_root_mismatch` is a \
-warning; a WRITE under it is PROHIBITED by doctrine — `memorize`, `skeleton_candidate`, \
-`candidate_edit`, `system_blocks_seed_import`/`_ratify`/`_reconcile`, and `mission_post` would \
-each land in the WRONG brain (this is exactly how a foreign skeleton once overwrote a bound \
-brain). Do not attempt a write from this mismatched session. The honest recovery code is \
-`brain_bootstrap_consumer_not_installed`; no AGENT-callable one-call bootstrap or overlap \
-escape hatch exists — the sovereign consumer is human-gated, and the human's ceremony \
-(`m1nd init --birth <repo>`) is the only door.
+## Reception, birth, ingest
+- `reception.match == \"caller_root_mismatch\"`: the bound graph does NOT cover your repo. Do \
+not trust retrieval for it, read `reception.options[]`, and make NO writes — `memorize`, \
+`skeleton_candidate`, `candidate_edit`, the `system_blocks_*` writers and `mission_post` would \
+land in the WRONG brain. Absent `reception` = your root matches.
+- `needs_ingest`: read the packet's `next_move` and say it; never retry a refusal. A repo with \
+NO brain gets one only from the HUMAN's one-time ceremony `m1nd init --birth <repo>`: offer \
+that exact command and stop. No agent-callable bootstrap exists; the honest recovery code is \
+`brain_bootstrap_consumer_not_installed`.
+- `ingest {mode:\"refresh\"}` is the only ingest an agent runs: it re-scans a root this brain \
+already declared, only from exactly that root, and refuses rather than shrink the graph. \
+`replace` and `merge` are policy-disabled.
+- `graph_drift` on `north` or `health`: the graph is behind your checkout. Run its `refresh` \
+call, or read line numbers as of its `indexed` commit.
 
-**THE MENU IS A CORE, NOT THE SURFACE.** By default `tools/list` advertises about fifteen verbs \
-— the handful six weeks of real traffic showed agents actually reach for, plus the host-binding \
-floor. That is the shop window, not the shop: additional verbs are registered but not advertised, \
-and server dispatch accepts their names subject to authority checks. Some hosts require tools to be listed. **`help` is the door**: \
-`help(intent)` or `help(stage)` routes you to the right verb for what you are doing, and \
-`help(tool_name)` returns any verb's full schema — `help` catalogs the WHOLE registry, never just \
-the menu, so it can name and explain a verb you cannot see. `health.tool_surface_contract` \
-reports the live numbers (`advertised_tool_count`, `hidden_tool_count`, \
-`full_registry_tool_count`). An operator who wants the whole list in the menu sets \
-`M1ND_TOOL_TIER=full` on the server. Never conclude a capability is missing because it is not in \
-the list — ask `help` first.
+## THE MENU IS A CORE
+`tools/list` shows about fifteen verbs; the rest of the registry stays registered, and \
+dispatch accepts their names subject to authority checks (some hosts only call listed tools). \
+**`help` is the door**: \
+`help(intent)` or `help(stage)` routes you to a verb, `help(tool_name)` returns any verb's \
+full description and parameters, and `help` catalogs the WHOLE registry at every tier. An \
+operator sets `M1ND_TOOL_TIER=full` to list everything. Never conclude a capability is missing \
+before asking `help`.
+Advertised ≠ callable: a verb above the ORDINARY authority floor carries `POLICY-DISABLED \
+(authority floor …)` in its description, in the menu and in `help` alike, and refuses with \
+`generic_action_authority_required`. Read the mark; never spend turns retrying a refusal.
 
-**ADVERTISED ≠ CALLABLE — the authority floors.** Bootstrap is not the only closed door. Every \
-semantic action carries an M1ND-10 authority floor and generic MCP/REST dispatch admits only \
-`ORDINARY`; a verb above it (`SCOPED_GRANT_A2` / `POSITIVE_SOVEREIGN` / `SERVICE_IDENTITY`) \
-refuses with `generic_action_authority_required`. No payload shape, capability claim or retry \
-lifts that — only an exact typed G2/G3 consumer (an authority lease), and none is installed for \
-those actions yet. 40 of the registry's verbs are affected today, INCLUDING ones this \
-document teaches: `learn`, `debrief`, `promote`, `calibrate_predict` / `calibrate_envelope`, \
-`ghost_edges`, `runtime_overlay`, `apply` / `apply_batch` / `edit_commit`, `daemon_start` / \
-`_stop` / `_tick`, `auto_ingest_start` / `_stop` / `_tick` (their `_status` reads stay open), \
-the `xray_*` commit branch, `boot_memory` set/delete, \
-`mission_close write_light_memory:true`, and every system-blocks writer. Every one of them \
-carries the mark in its own description — `POLICY-DISABLED (authority floor …)` — in the menu and \
-in `help` alike. READ THAT before planning \
-around a verb, and do not spend turns retrying a refusal. Still ORDINARY and genuinely callable: \
-every read, `memorize`, `delegate`, `trail_save`, the perspective family, plain `mission_start` / \
-`mission_event` / `mission_verify` / `mission_handoff` / `mission_close`.
+## Bigger work
+- Spawning a subagent: `delegate {agent_id, task}` composes its grounded packet in one \
+read-only call; append its `prompt_markdown` to your brief.
+- Orchestrating a burst (two or more executors, or a big change): open ONE `mission_start` \
+card, post `mission_event` at milestones and `mission_close` at the end. A card is a trail, \
+never a gate.
+- Ratifying a skeleton or landing a receipt is human-only.
 
-## 1. PRE-ORIENT — never start cold
+## The voice
+`north` carries `human_view` (`m1nd-human-view-v0`), a server-mounted card: render its `lines` \
+verbatim in a fenced code block, never re-composed. Do NOT render the card unless m1nd \
+contributed structurally to the mission AND the content is useful to the human NOW; never in \
+consecutive messages; never the same state_sig twice in a session. ASCII fallback is 1:1 \
+(`╷`→`.`, `│`→`|`). Credit m1nd only when it passes the counterfactual test, and never with \
+estimated savings.
 
-Call `north(task)` FIRST, before reading or editing anything. One round-trip returns: \
-binding trust (`trust_mode`; the repair travels with it when degraded), task context \
-(focus nodes + PageRank anchors), prior cross-session memory (each claim with its real \
-age + author — absent, never faked, when unknown), a sufficiency signal, one \
-`next_move`, `honest_gaps` (what m1nd does NOT yet know), and — when missions \
-await the human landing — the `landing_bell` (a `merge_wait` count + one honest \
-line, absent when none do). If it returns `needs_ingest`, do not call generic \
-`ingest` to REPLACE or MERGE — those stay policy-disabled. Read the packet's \
-`next_move`, which names WHICH repair is live, and SAY IT rather than retrying a \
-refusal. A repo with NO brain gets one from the HUMAN's one-time ceremony \
-`m1nd init --birth <repo>`: OFFER that exact command and stop. It ingests the repo for \
-real and reports the node and edge counts it produced; no agent can run it, because the \
-origin stamp exists only inside that CLI ingress. For an existing brain, \
-use the exact authority flow plus `external_mutation_service`; under \
-`caller_root_mismatch`, creating or rebinding a brain from the wire remains unavailable. \
-The ONE ingest you CAN run is \
-`ingest` with mode=refresh — it re-scans a root this brain already declared, and only \
-when your caller root is exactly that root; it refuses rather than shrink the graph. \
-`north` \
-composes trust_selftest + orient + boot_memory + focus — reach for the pieces directly \
-only when you need just one.
-
-**north hands back the CODE, not just the address.** The packet carries `code`: the real \
-source of its top focus nodes — the symbol's own lines when the node names one, the file \
-head when it does not — for up to 3 distinct files inside a ~2,000-char budget. READ IT \
-BEFORE YOU GO FETCH ANYTHING. Do not grep, `sed`, or re-open a file north already handed \
-you; that second trip is the one this payload exists to save. Every slice states \
-`file_path`, its line span, `total_lines` vs `lines_returned` and `truncated`, so you \
-always know what you are missing: when a slice is truncated, `surgical_context(file_path, \
-symbol)` or `batch_view(files)` serves the rest — the SAME verbs the payload was composed \
-from, so nothing new is learned by calling them on untruncated code. Widen the first call \
-with `code_budget_chars` instead of paying a round-trip; pass `code: false` if you truly \
-want orientation only. The payload is ABSENT — not empty — wherever the packet already \
-says the graph cannot answer for your repo: `needs_ingest`, an empty graph, no project \
-brain, and `caller_root_mismatch` (under a mismatch those file bytes would be ANOTHER \
-repo's source, which is the most convincing form of context poisoning there is).
-
-**Memory is PULL, never PUSH (the medulla law).** Your default recall beat carries exactly \
-TWO feeds: your own project brain's memory + the shared `medulla` (promoted/doctrine claims). \
-Another repo's private claim NEVER appears in your beat — it can only reach you if it was \
-promoted to the medulla. Every recall row is labeled with its `tier` (`project` | `medulla`) \
-and `origin_brain` (WHICH brain it came from), so you always know a claim's provenance. \
-Need to inspect across projects? Pass `tier` on `seek`/`north`/`boot_memory`: `project` (your \
-store only), `medulla` (doctrine only), `project+medulla` (the default), or `all-brains` — the \
-EXPLICIT cross-project fan-out that reads every hosted brain, each hit labeled by `origin_brain`. \
-`all-brains` is one argument away and never ambient; don't reach for it unless you actually need \
-another project's knowledge.
-
-## 2. ACT ON VERDICTS — respect qualification, don't override it
-
-Retrieval and prediction return advisory verdicts; obey their limits:
-- **`act` / `reverify` / `abstain`** — `abstain` means unqualified or insufficient \
-evidence: do NOT guess past it. Existing v1 calibration rows are \
-`legacy_evidence_unqualified`: `predict` abstains, while the `seek` envelope stays \
-`reverify` or `unprovable`, with its score preserved and no current calibration receipt. \
-`calibrate_predict` and `calibrate_envelope` measure diagnostic aggregates only; \
-they cannot arm `act`, and their existing authority restrictions still apply.
-- **`why` answers carry a `closure` verdict** — `blocked` means the path rests on an \
-unresolved (guessed/dropped) edge: verify that edge before you rely on the path.
-- **`seek` carries a `trust_envelope` + a sufficiency stop-signal** — `sufficient` \
-means stop gathering; `gathering`/`saturated` mean widen or refine.
-- **`trust_band: insufficient_evidence` means NO evidence — not medium risk.** \
-It is the honest cold-start answer, distinct from low/medium/high risk.
-
-## 3. POST-CAPTURE — leave the graph warmer than you found it
-
-Before ending, `memorize` every durable finding (a decision, a verified fact, why code \
-is the way it is, an open design point). Pass structured claims with `confidence` and — \
-crucially — repo-relative `evidence` paths to the code that backs each claim. `memorize` \
-anchors each path to the real code node, so the knowledge lives in the same activation \
-space as code, surfaces in later `seek`/`north`, and self-flags as stale via \
-`cross_verify(check:[\"evidence_freshness\"])` when that code changes. Closing a mission? \
-Pass `write_light_memory:true` to `mission_close` to persist its verified claims in one \
-step. This is how knowledge compounds instead of being lost between sessions.
-
-Every `memorize` is stamped with an `Origin-Brain` (the project root it was born in, or \
-`medulla` for the owner's own doctrine store) so recall can always say WHICH brain a claim \
-came from. If your session's root has no project brain, a `memorize` is REFUSED (not \
-silently written into the shared medulla). Its refusal reports \
-`brain_bootstrap_consumer_not_installed`; it never fabricates an executable repair call.
-
-**PROMOTION — the audited crossing (do it deliberately, rarely).** A `memorize` is ALWAYS \
-project-private; a finding does NOT become shared doctrine by being written. When a VERIFIED \
-claim is genuinely transversal (true across projects, not one repo's fact), `promote \
-{brain: <project_root>, claim: <slug>, reason: <one line>}` copies it UP into the medulla \
-with the full readable chain (Origin-Brain, Origin-Claim, Promoted-By, Promotion-Reason); the \
-project original stays in place, stamped Promoted-To — promotion ELEVATES, never moves. Gates \
-you must respect: only `State: verified` (or a founder claim) may promote; a secret or a \
-conflict-marker is refused at the hygiene floor (the medulla is the most-read store); a \
-promoted claim's code evidence is origin-qualified so freshness delegates back to its home \
-brain, or the claim is marked `evidence_unverifiable` — a medulla claim never reads fresher \
-than it can prove. ETIQUETTE: promotion is an ORCHESTRATOR / maintainer act — a maker \
-PROPOSES (\"candidate for promotion\" is just a claim it memorizes), the orchestrator executes. \
-Any id CAN call `promote` (it is not a security boundary), but every promotion is auditably \
-attributed by `Promoted-By`; don't promote a maker's unverified hunch. To DEMOTE (un-share a \
-claim that turned out to be one repo's quirk), `learn wrong` on the MEDULLA copy or supersede \
-it with a `moved_to:` medulla `memorize` — this never touches the project witness (un-share, \
-never destroy).
-
-Then leave ONE field-telemetry signal and keep working (report, never detour): when a \
-retrieval was right or wrong, `learn(correct|wrong)` (relevance only; ambiguous partial refuses); when m1nd ITSELF misbehaves \
-(a bug, friction, or an honesty miss — it claimed fresh/closed/act and was wrong), append \
-one JSON line to `~/.m1nd/field-reports.jsonl` \
-(`{ts,agent,repo,tool,class:\"bug|honesty|friction|win\",what,expected,snippet}`) — \
-local-only, it never phones home. A memory-delivery fault (a claim leaked across brains, a \
-false absence, a write to the wrong store) is `class:\"memory_misdelivery\"` with a \
-`kind` of leak|false_absence|wrong_store_write|misattribution|vanished. The spool is the ONE \
-write slot; letters distribute LOCALLY into per-project boxes (`<repo>/.m1nd/inbox.jsonl`, \
-travels with git) + the medulla box for projectless letters — a letter naming a project \
-NEVER lands in the medulla. Triage is `m1nd-mcp --inbox-sweep` (CLI) or `GET /api/inbox_sweep` \
-(the union of spool + every box, each letter once); a project's box reads via \
-`GET /api/mailbox?brain=<root>`. These are CLI/REST surfaces — NOT MCP tools (never in the loop).
-
-## 4. DELEGATE — hand a grounded packet down, debrief the return
-
-Spawning a subagent? `delegate {agent_id, task}` composes the RETRIEVAL half of its spec in ONE \
-read-only call — ranked anchors, a memory slice with real age + author, known static dependents, a \
-staleness header, a proof-command heuristic, and an explicit list of what m1nd could NOT determine — \
-and renders it as `prompt_markdown` you APPEND to your brief (the packet is an appendix: your text \
-wins on what-to-do, the file wins on what-is, the packet outranks assumption only). The packet's \
-`mission.binding` NAMES the brain the child must land on — it is the SAME datum reception uses \
-(`M1nd-Caller-Root` ↔ `covers_root`), so the child VERIFIES it landed (silent on match) rather than \
-choosing (the child law, ORGANISM §C5.3). `delegate` abstains HONESTLY — `needs_ingest` on an empty \
-graph, `unscopable` when the task activates no coherent subgraph, `seeds_unresolvable` when every \
-seed fails — always with evidence + a `next_move`, never a bare no. It is PROJECT-TIER: no \
-medulla-doctrine block, and no predict/trust/tremor/xray enrichment yet — each omission is stated in \
-`non_claims`, never hidden. \
-When the subagent returns, `debrief {agent_id, delegation_id, outcome, diff|touched_paths, findings}` \
-grades its real diff against that packet and TEACHES the graph — the only mutation, through \
-`memorize`/`learn` only. It classifies each touched path (in_scope | expected_change | \
-dependent_contact | unpredicted) with a worst-of verdict that carries fence existence (\"stayed — no \
-ratified boundaries existed\"), memorizes the subagent's findings under the subagent's id and any \
-map-miss lessons under yours (clean runs memorize nothing), and appends one `outcomes.jsonl` row \
-stamped `outcome_unverified` unless you attach `evidence`. Conformance grades PATHS, never code \
-quality — it never says merge-safe. Every debrief visibly deposits memory the next packet will \
-surface, so skipping it wastes knowledge; do it.
-
-**WORK RUNS INSIDE — the burst wears the wire.** When you ORCHESTRATE a burst (dispatching \
-≥2 executors, or landing a BIG change), open ONE mission card so the organism SEES the work \
-instead of it happening off-book: `mission_start {agent_id, repo, mode, budget, risk, task}` at \
-the start (over the wire, or the REST loopback `POST /api/tools/mission_start`), `mission_event` \
-at each milestone, `mission_close` with the honest outcome at the end. A mission-control card is \
-SINGLE-AGENT — `mission_event`/`mission_close` require the card's own `agent_id` — so the burst \
-posts under the orchestrator's id: executors report back and the orchestrator posts, they do NOT \
-each open a card (anti-spam: ONE card per burst THEME, never one per executor). NEGATIVE DEFAULT, \
-like the voice: a card is for a REAL burst, never a trivial one-file touch. The card is a TRAIL, \
-never a GATE — it records what happened; the deterministic gate still proves the work, and no card \
-auto-lands (the map colors only by a human `receipt_import` on the mission-letter board — a \
-`mission_close` closes a trail, it never colors a block).
-
-## 5. THE SOUL — trust the handoff by a receipt, not by faith
-
-A repo's `docs/PATHOS.md` is its SOUL: the curated handoff — north, state, doctrine, access, \
-known problems, next moves. The pathos skill is the AUTHORING guide (how souls are born, which \
-sections exist); m1nd is the ENGINE that verifies one. `soul_check` parses the soul into \
-anchored CLAIMS, classifies each (path/line-hint/symbol/git/consistency/receipt/runtime/declared), \
-verifies per class, and returns the honesty report + a one-line FRESHNESS RECEIPT — \"N fresh · \
-M stale · K receipt-priced, checked <date> @<sha>\" — the line a cold context reads to know how \
-much to trust the handoff. THE TWO TISSUES hold: verifiable tissue (state/access/known-problems) \
-is machine-checkable; DECLARED tissue (taste, doctrine, why-we-work-this-way) is \
-UNPROVABLE-but-curated and NEVER fake-verified — the system knowing what it cannot verify IS the \
-honesty. `soul_read` pulls the body (whole or a section) — the explicit pull surface, never \
-ambient. THE CURATOR is a near-PR/doc-gate WORKFLOW (not a verb): sweep with soul_check → verify \
-against code/git/runtime → update durable claims via `memorize` (with `soul_source` provenance, \
-the ONE write door) → prune stale NEVER silently (every removal named, git keeps the text) → \
-re-check → carry the receipt in the PR body. WHO VERIFIES THE CURATOR (§C8.4): its report must \
-pass `soul_check {verify_curator_report: <report>}` run by a DIFFERENT agent — grader ≠ author.
-
-## 6. THE WRITE SURFACE — the candidate map & missions (RATIFY IS HUMAN)
-
-Two write surfaces beyond `memorize`, both candidate/human-gated by design. THE CANDIDATE MAP: \
-`skeleton_candidate` scans a repo into a CANDIDATE block map (with `naming:\"auto\"` + a live \
-naming-runner it is born NAMED — the zero-touch default); `candidate_edit` is the ONE verb that \
-edits it — six typed ops (rename/merge/split/move_member/resolve_seam/assign_unmapped) in ONE \
-atomic OCC batch under `expected_store_version` (one bad op persists NOTHING), and it REFUSES on a \
-ratified skeleton (candidate-only). `candidate_lease` is advisory (TTL, reclaimable) and NEVER \
-blocks the owner. RATIFY IS EXCLUSIVELY HUMAN — no agent ratifies a skeleton, ever (mechanically \
-enforced: generic `system_blocks_ratify` is closed because a client-authored origin string proves \
-nothing; ratification requires a future exact typed G2/G3 sovereign lease path — \
-and raw `receipt_import` is a permanent external G3 tombstone), and an untouched raw-heuristic block cannot be ratified; the hand proposes (even a whole-candidate \
-curation mission edits via `candidate_edit`), the human signs. CURATION IS PROPOSE-APPLY (F12): the \
-`curation_spawn` verb sends the candidate to a pinned hand-runner that PROPOSES `candidate_edit` ops \
-as data; the OWNER sanitizes (o5, seat `runner`) and applies them under OCC — the hand never holds a \
-write surface, and it can NEVER ratify. THE MISSION LETTER: `mission_post` \
-records one mission's live state as `m1nd-mission-letter-v0` — `brain_ref` is the brain's DISPLAY \
-NAME (the basename of its root, never an absolute path; a wrong one is refused `brain_mismatch`), \
-`block_id` must name a real block in the bound skeleton (else `unknown_block`; a legitimate \
-smoke/probe letter sets `synthetic:true`), and a letter is STATE, never evidence: it never colors a \
-block — only `receipt_import` does — and `landed` is reserved for a confirmed imported receipt.
-
-## 7. THE M1ND VOICE — rendering `human_view` (the card law)
-
-`north` carries `human_view` (`m1nd-human-view-v0`): the m1nd voice for the HUMAN in the \
-conversation — a server-composed card with `state` (clean|bell|coherence|mismatch|needs_ingest), \
-a mechanical `state_sig`, and `lines[]` already MOUNTED (the `m1nd` wordmark + the PULSE row + \
-`│` gutter, ≤4 lines, ≤80 chars). Render it by joining `lines` with newlines inside a fenced \
-code block — never re-compose, re-order, or decorate it. Every line is a measured fact or a \
-verbatim server string (brand law G1: no uncalibrated adjectives, no benefit claims — silence \
-over ornament). Line 1 may also carry a `map <N> blocks` segment — the served brain's ratified \
-SystemBlock count (per-brain; the packet's `map` field), omitted when zero.
-
-THE PULSE — the official signature of the voice (owner's stamp 2026-07-12). Line 1 hangs \
-`m1nd ` then FIVE pulse cells: `trust · graph · focus · bell · coherence`, each calm `╷` or \
-raised `│` (e.g. `m1nd ╷╷╷│╷` = only the bell is calling). READ IT AS AN EXPRESSION, never \
-cell-by-cell: all low = calm; one stem standing up = look. The cell order is FIXED — never \
-reorder or add a cell. Under a repo mismatch the pulse is DROPPED and the plain spine `m1nd │ ` \
-returns (the vitals would read the wrong brain). Its meaning belongs in the deep rung, never as \
-a per-cell caption in the compact card.
-
-CADENCE — the default is NEGATIVE: Do NOT render the card unless m1nd contributed structurally \
-to the mission AND the content is useful to the human NOW; never in consecutive messages; never \
-the same state_sig twice in a session; on state change or first orient. When in doubt, stay \
-silent — silence is the honest card.
-
-TRANSLATION DUTY: translate the card's CONTENT into the conversation's language while keeping \
-the geometry intact (the pulse + gutter at column 6, ≤80 cols) and ids, hashes, tool names, and \
-state tokens (`merge_wait`, `needs_ingest`, `full_trust`) verbatim.
-
-THE DEEP RUNG (R2) IS YOURS: when the human asks (\"what's the bell?\", \"show me m1nd\") or at a \
-landing moment, render a deeper card FROM THE PACKET'S STRUCTURED FIELDS (`landing_bell`, the \
-mission tray, blocks) in the SAME grammar — wordmark + gutter, one measured fact per line — \
-never a fact the packet does not carry. In the deep rung you MAY render the pulse legend \
-(`pulse ≔ trust ╷ · graph ╷ · focus ╷ · bell │ · coherence ╷`) so the human learns to read the \
-row — this legend is YOURS to render, never served in the compact card. Two proof glyphs are \
-also yours, ONLY where the packet proves them, never as decoration: `⊢` (evidence ⊢ receipt) on \
-a receipt line (`441 tests green ⊢ receipt sha256:…`; ASCII `>`), and `∎` on a consummated \
-landing (`msn_… landed ∎`; ASCII `#`).
-
-ASCII FALLBACK (1:1): when the surface cannot hold unicode, map `╷`→`.`, `│`→`|`, `·`→`.`, \
-`—`→`-`, `⊢`→`>`, `∎`→`#` — widths are identical, the geometry never moves.
-
-THE COCKPIT (`cockpit`) is the human's ON-REQUEST menu — call it ONLY when the human asks to \
-look around (\"?\", \"show me m1nd\", \"what can I check?\"); never auto-serve it, and NEVER at a \
-landing (there the card speaks and the door is the tray). It is read-only: its entries are \
-argument-less reads and pointer doors (the tray carries no verb — the stamp is a human gesture, \
-never a cockpit click). Carry its `menu_sig` back verbatim when navigating.
-
-ATTRIBUTION — the second half of the voice: narrate where m1nd was useful ONLY when it passes \
-the counterfactual test (\"without it, would I have decided differently or worse?\") — it changed \
-a decision, avoided a rediscovery, opened a front, proved or refuted something. Consulting \
-without effect = silence. Never claim \"used m1nd\" as merit; state facts, never estimated \
-savings (G1).
-
-## SECONDARY VERBS (one line each)
-
-- `seek(query)` / `focus(task)` — budgeted retrieval; carry the trust + sufficiency signals above.
-- `impact(node)` — directional blast radius before a change; `why(a,b)` — the load-bearing path between two nodes.
-- `trust_selftest` / `recovery_playbook` — run when trust looks off or retrieval is blocked; `doctor` for deeper host-surface/graph diagnosis.
-- `am_i_stale(claim)` — check BEFORE editing on the strength of remembered/cached knowledge.
-- `soul_check` / `soul_read` — verify (freshness receipt) / pull the project's PATHOS handoff soul.
-- `coverage_session` — surface the blind spots in what you have and haven't looked at this session.
-- `ingest` — `replace`/`merge` are policy-disabled and must not be called. `ingest` with mode=refresh is the one exception: re-scan a root this brain already declared, from exactly that root.
-- `external_mutation_service` — governed elevated graph ingest for an existing brain after the exact authority flow; it does not create project brains.
+## The doctrine, on pull
+`help {topic: \"<id>\"}` opens one card: reception · menu · authority · north · recall · \
+verdicts · capture · promotion · telemetry · delegate · missions · soul · write_surface · \
+voice · verbs.
 ";
 
 /// Stdio MCP framing mode auto-detected on the inbound stream. The matching
@@ -884,6 +655,9 @@ pub fn tool_schemas() -> serde_json::Value {
 /// avoid racing on the process-wide env var.
 ///
 /// `tier`: `"full"` → registry; `"investigate"` → core plus graph snapshots; otherwise core.
+/// Outside `full`, each core verb is served as its menu card
+/// ([`CORE_MENU_CARDS`] through `core_menu_card_schema`); the registry entry
+/// behind it is unchanged and `help(tool_name)` serves it whole.
 pub fn tool_schemas_for_tier(tier: &str) -> serde_json::Value {
     let all = all_tool_schemas_inner();
     if tier.eq_ignore_ascii_case("full") {
@@ -907,6 +681,7 @@ pub fn tool_schemas_for_tier(tier: &str) -> serde_json::Value {
         })
         .collect();
     let hidden = all_count.saturating_sub(filtered.len());
+    filtered = filtered.into_iter().map(core_menu_card_schema).collect();
     annotate_core_menu_discovery(&mut filtered, hidden);
     serde_json::json!({ "tools": filtered })
 }
@@ -935,15 +710,155 @@ fn annotate_core_menu_discovery(tools: &mut [serde_json::Value], hidden: usize) 
         return;
     }
     let annotated = format!(
-        "{description} \
-         [{CORE_MENU_DISCOVERY_MARKER}] The m1nd tools you can see are a curated core, not the \
-         whole surface: {hidden} more verbs are registered but not advertised. \
-         Availability depends on authority checks and host support for calling unlisted tools. `help` knows every one of them: \
-         `help(intent)` or `help(stage)` routes you to the right verb, and `help(tool_name)` \
-         returns its full schema. To see them all in tools/list instead, set M1ND_TOOL_TIER=full \
-         on the m1nd server. M1ND_TOOL_TIER=investigate adds only the five graph change-tracking tools to the core menu."
+        "{description} [{CORE_MENU_DISCOVERY_MARKER}] {hidden} more verbs are registered but not \
+         advertised, callable by name subject to authority checks; M1ND_TOOL_TIER=full lists them all."
     );
     help["description"] = serde_json::Value::String(annotated);
+}
+
+/// What the default menu says about each core verb.
+///
+/// `tools/list` is loaded into every session before its first call, so the
+/// menu carries a card, not the manual: when to reach for the verb and what it
+/// will not do, in one to three sentences. The registry keeps every word of the
+/// full description and every parameter's prose and default, and
+/// `help(tool_name)` serves them on pull. Written in ASCII on purpose: a host
+/// that renders schemas with escaped non-ASCII pays six characters for each.
+pub(crate) const CORE_MENU_CARDS: &[(&str, &str)] = &[
+    (
+        "north",
+        "Call FIRST, before reading or editing. Returns binding trust, focus nodes, prior memory \
+         (real age, author), one next_move, honest_gaps and `code`: the source of the top focus \
+         nodes, so read it before fetching again. An empty or mismatched graph answers \
+         needs_ingest or a reception warning, and no code; a graph behind your checkout adds \
+         graph_drift with its refresh call.",
+    ),
+    (
+        "memorize",
+        "Save durable findings to this project's brain as claims with a confidence and \
+         repo-relative `evidence` paths; evidence anchors each claim to code, so it surfaces in \
+         later seek/north and flags itself stale when that code changes. Never call it under \
+         caller_root_mismatch.",
+    ),
+    (
+        "boot_memory",
+        "Reads the migrated legacy Boot KV projection (get, list, status); durable knowledge goes \
+         through memorize.",
+    ),
+    (
+        "ingest",
+        "POLICY-DISABLED for mode replace (POSITIVE_SOVEREIGN) and merge (SCOPED_GRANT_A2). \
+         mode='refresh' is the one agent ingest: it re-scans a root this brain already declared, \
+         only from exactly that root, and refuses to shrink the graph. No brain yet: offer the \
+         human `m1nd init --birth <repo>` and stop.",
+    ),
+    (
+        "seek",
+        "Find code by purpose, not text. Rows carry a trust_envelope and a sufficiency signal: \
+         `sufficient` means stop gathering.",
+    ),
+    (
+        "search",
+        "Literal, regex or semantic search over graph labels and file contents on disk, with \
+         grep-style options.",
+    ),
+    (
+        "view",
+        "Read a file with line numbers (0-based offset); auto-ingests it if the graph lacks it.",
+    ),
+    (
+        "surgical_context",
+        "Edit context for one file: contents, symbols and graph neighbours (callers, callees, \
+         tests).",
+    ),
+    (
+        "impact",
+        "Blast radius of changing a node. Before you call a change done, check its co_change: \
+         files that historically change with the target.",
+    ),
+    (
+        "health",
+        "Server health, graph counts and the tool_surface_contract; graph_drift when the graph \
+         is behind your checkout.",
+    ),
+    (
+        "trust_selftest",
+        "One-call verdict on host binding, graph and recovery trust.",
+    ),
+    (
+        "session_handshake",
+        "Cheap trust handshake before relying on retrieval; can also declare your presence \
+         (advisory, never a gate).",
+    ),
+    (
+        "recovery_playbook",
+        "Recovery steps for a degraded binding, an empty graph or a stale-looking session.",
+    ),
+    (
+        "doctor",
+        "Diagnose graph, runtime, session and stale-binding symptoms.",
+    ),
+    (
+        "help",
+        "The door to every verb and to the doctrine behind the instructions: help(intent) or \
+         help(stage) routes you, help(tool_name) returns a verb's full description and \
+         parameters, help(topic) opens a doctrine card.",
+    ),
+];
+
+/// One registry schema in its menu form: the card for a description, with the
+/// derived POLICY-DISABLED mark when a branch sits above the generic floor, and
+/// an input schema reduced to what a host validates a call against. A verb with
+/// no card passes through untouched.
+fn core_menu_card_schema(mut tool: serde_json::Value) -> serde_json::Value {
+    let Some(name) = tool.get("name").and_then(serde_json::Value::as_str) else {
+        return tool;
+    };
+    let Some((_, card)) = CORE_MENU_CARDS.iter().find(|(verb, _)| *verb == name) else {
+        return tool;
+    };
+    let description = match menu_floor_gate_prefix(name) {
+        Some(prefix) if !card.contains(FLOOR_GATE_MARKER) => format!("{prefix}{card}"),
+        _ => (*card).to_string(),
+    };
+    tool["description"] = serde_json::Value::String(description);
+    if let Some(schema) = tool.get_mut("inputSchema") {
+        strip_schema_prose(schema);
+    }
+    tool
+}
+
+/// Drop `description` and `default` from a schema and from every schema nested
+/// in it, keeping names, types, enums, bounds, `required` and
+/// `additionalProperties`. Property NAMES are never touched, only the keywords
+/// of the schemas they map to.
+fn strip_schema_prose(schema: &mut serde_json::Value) {
+    let Some(object) = schema.as_object_mut() else {
+        return;
+    };
+    object.remove("description");
+    object.remove("default");
+    if let Some(properties) = object
+        .get_mut("properties")
+        .and_then(serde_json::Value::as_object_mut)
+    {
+        for property in properties.values_mut() {
+            strip_schema_prose(property);
+        }
+    }
+    match object.get_mut("items") {
+        Some(serde_json::Value::Array(items)) => items.iter_mut().for_each(strip_schema_prose),
+        Some(items) => strip_schema_prose(items),
+        None => {}
+    }
+    for keyword in ["anyOf", "oneOf", "allOf"] {
+        if let Some(serde_json::Value::Array(variants)) = object.get_mut(keyword) {
+            variants.iter_mut().for_each(strip_schema_prose);
+        }
+    }
+    if let Some(additional) = object.get_mut("additionalProperties") {
+        strip_schema_prose(additional);
+    }
 }
 
 /// Internal: the complete external tool registry. Legacy raw mission writes
@@ -967,7 +882,7 @@ fn all_tool_schemas_inner() -> serde_json::Value {
             },
             {
                 "name": "north",
-                "description": "Pre-orient in ONE call so you never start cold — and get the CODE, not just its address. north returns the honest north packet PLUS `code`: the actual source of its top focus nodes (up to 3 files, ~2,000 chars by default, `code_budget_chars` to widen, `code: false` to switch off), composed from surgical_context (the symbol's own lines) and batch_view (the file head when a node names no symbol). Every slice declares total_lines / lines_returned / truncated, so what was cut is stated, never silent — you do NOT need a second round-trip to read what north just named. The rest of the packet is unchanged: binding trust (trust_mode + fingerprint + the repair when degraded), task context (focus nodes + PageRank anchors from orient), durable cross-session memory (each claim with its real age + author, absent when unknown — never faked to 'now'), an answer-free sufficiency signal, one suggested next_move, and honest_gaps (what m1nd does NOT yet know). When missions await the human landing it also rings the landing_bell (a merge_wait count + one honest line, absent when none do) so an opening agent can nudge the owner to the tray. When the graph was built at another commit than your checkout it carries graph_drift (indexed vs head commit, commits behind, files changed, and the exact refresh call) — absent when the graph is at HEAD. It also carries human_view (m1nd-human-view-v0): the m1nd voice — a server-mounted ≤4-line card (state, state_sig, lines) the agent renders for the human under the negative-default cadence in the instructions (§7), verbatim, never re-composed. On an empty/unbound graph it honestly returns needs_ingest + the repair, not a fabricated orientation — and no code: the payload is ABSENT wherever the packet says the graph cannot answer for your repo (needs_ingest, empty graph, caller_root_mismatch, no project brain). One round-trip instead of trust_selftest → orient → boot_memory → focus → surgical_context. Read-only safe.",
+                "description": "Pre-orient in ONE call so you never start cold — and get the CODE, not just its address. north returns the honest north packet PLUS `code`: the actual source of its top focus nodes (up to 3 files, ~2,000 chars by default, `code_budget_chars` to widen, `code: false` to switch off), composed from surgical_context (the symbol's own lines) and batch_view (the file head when a node names no symbol). Every slice declares total_lines / lines_returned / truncated, so what was cut is stated, never silent — you do NOT need a second round-trip to read what north just named. The rest of the packet is unchanged: binding trust (trust_mode + fingerprint + the repair when degraded), task context (focus nodes + PageRank anchors from orient), durable cross-session memory (each claim with its real age + author, absent when unknown — never faked to 'now'), an answer-free sufficiency signal, one suggested next_move, and honest_gaps (what m1nd does NOT yet know). When missions await the human landing it also rings the landing_bell (a merge_wait count + one honest line, absent when none do) so an opening agent can nudge the owner to the tray. When the graph was built at another commit than your checkout it carries graph_drift (indexed vs head commit, commits behind, files changed, and the exact refresh call) — absent when the graph is at HEAD. It also carries human_view (m1nd-human-view-v0): the m1nd voice — a server-mounted ≤4-line card (state, state_sig, lines) the agent renders for the human under the negative-default cadence in the instructions (full card law: help topic `voice`), verbatim, never re-composed. On an empty/unbound graph it honestly returns needs_ingest + the repair, not a fabricated orientation — and no code: the payload is ABSENT wherever the packet says the graph cannot answer for your repo (needs_ingest, empty graph, caller_root_mismatch, no project brain). One round-trip instead of trust_selftest → orient → boot_memory → focus → surgical_context. Read-only safe.",
                 "inputSchema": {
                     "type": "object",
                     "properties": {
@@ -2555,7 +2470,7 @@ fn all_tool_schemas_inner() -> serde_json::Value {
             },
             {
                 "name": "help",
-                "description": "Context-aware help for m1nd tools. Returns tool doctrine, route guidance, workflow sequences, or recovery guidance for agents.",
+                "description": "Context-aware help for m1nd tools. Returns tool doctrine, route guidance, workflow sequences, or recovery guidance for agents, and with `topic` one doctrine card behind the server instructions (reception, authority, north, voice and the rest; an unknown topic lists them). M1ND_TOOL_TIER=investigate adds only the five graph change-tracking tools to the core menu.",
                 "inputSchema": {
                     "type": "object",
                     "properties": {
@@ -2585,7 +2500,8 @@ fn all_tool_schemas_inner() -> serde_json::Value {
                             "enum": ["full", "compact", "none"],
                             "default": "full",
                             "description": "Render mode for formatted help text"
-                        }
+                        },
+                        "topic": { "type": "string", "description": "Doctrine card to open, e.g. reception, authority, north, voice. Takes precedence over every other selector; an unknown topic lists the cards." }
                     },
                     "required": ["agent_id"]
                 }
@@ -3629,6 +3545,34 @@ pub(crate) fn annotate_floor_gated_summary(tool: &str, summary: &str) -> String 
         "{FLOOR_GATE_MARKER} (authority floor {floors} — generic dispatch refuses until an exact \
          typed G2/G3 consumer is installed). {summary}"
     )
+}
+
+/// The menu form of the floor annotation: the marker, the derived floors and,
+/// for a verb with open branches, the refused ones. The full sentence about
+/// typed G2/G3 consumers stays in the registry text `help` serves.
+fn menu_floor_gate_prefix(tool: &str) -> Option<String> {
+    match floor_gate_verdict(tool) {
+        FloorGate::Open => None,
+        FloorGate::Unresolved => Some(format!(
+            "{FLOOR_GATE_MARKER} (authority floor UNRESOLVED): generic dispatch refuses it. "
+        )),
+        FloorGate::Gated {
+            floors,
+            every_branch: true,
+            ..
+        } => Some(format!(
+            "{FLOOR_GATE_MARKER} (authority floor {floors}): generic dispatch refuses it. "
+        )),
+        FloorGate::Gated {
+            floors,
+            gated_actions,
+            every_branch: false,
+        } => Some(format!(
+            "{FLOOR_GATE_MARKER} (authority floor {floors}) on {}: generic dispatch refuses \
+             those branches. ",
+            gated_actions.join(", ")
+        )),
+    }
 }
 
 /// Whether a plain generic MCP/REST caller — no authority lease — reaches at
@@ -14781,6 +14725,370 @@ mod tests {
                 "help must be able to explain hidden verb '{hidden}'"
             );
         }
+    }
+
+    // ---- The session card ----------------------------------------------------
+    //
+    // The instructions and the default menu are paid by every session before its
+    // first call (`tests/session_card_budget.rs` pins the budget on the real
+    // server). They carry a card; `help` serves the rest on pull. These tests
+    // hold that what left the push surface is still one `help` call away.
+
+    /// Call `help` through the MCP `tools/call` seam, as an agent does.
+    fn served_help(state: &mut SessionState, arguments: serde_json::Value) -> serde_json::Value {
+        let request = crate::protocol::JsonRpcRequest {
+            jsonrpc: "2.0".into(),
+            id: serde_json::json!(1),
+            method: "tools/call".into(),
+            params: serde_json::json!({"name": "help", "arguments": arguments}),
+        };
+        let response = handle_mcp_method(state, &request);
+        let text = response
+            .result
+            .as_ref()
+            .and_then(|result| result.pointer("/content/0/text"))
+            .and_then(serde_json::Value::as_str)
+            .unwrap_or_else(|| panic!("help answered without text: {response:?}"));
+        serde_json::from_str(text).expect("help answers JSON")
+    }
+
+    /// Every paragraph the instructions stopped pushing is served, word for word,
+    /// by `help {topic}`, and the topic the card names is the one that holds it.
+    #[test]
+    fn every_help_topic_is_served_by_help() {
+        let (_temp, mut state) = build_state();
+        // One or more load-bearing lines from each moved paragraph, keyed by the
+        // topic that must serve it.
+        let anchors: &[(&str, &[&str])] = &[
+            (
+                "reception",
+                &[
+                    "silent bind is legal only on a match, TT-INV-12",
+                    "**Reception governs WRITES, not just reads.**",
+                    "`system_blocks_seed_import`/`_ratify`/`_reconcile`",
+                    "`human_gesture_required`",
+                ],
+            ),
+            (
+                "menu",
+                &[
+                    "**THE MENU IS A CORE, NOT THE SURFACE.**",
+                    "`health.tool_surface_contract`",
+                ],
+            ),
+            (
+                "authority",
+                &[
+                    "**ADVERTISED ≠ CALLABLE — the authority floors.**",
+                    "Still ORDINARY and genuinely callable",
+                ],
+            ),
+            (
+                "north",
+                &[
+                    "composes trust_selftest + orient + boot_memory + focus",
+                    "**north hands back the CODE, not just the address.**",
+                    "`code_budget_chars`",
+                    "`external_mutation_service`",
+                ],
+            ),
+            (
+                "recall",
+                &[
+                    "**Memory is PULL, never PUSH (the medulla law).**",
+                    "`all-brains` is one argument away and never ambient",
+                ],
+            ),
+            (
+                "verdicts",
+                &[
+                    "**`why` answers carry a `closure` verdict**",
+                    "**`seek` carries a `trust_envelope` + a sufficiency stop-signal**",
+                ],
+            ),
+            ("capture", &["`Origin-Brain`", "`write_light_memory:true`"]),
+            (
+                "promotion",
+                &[
+                    "**PROMOTION — the audited crossing",
+                    "un-share, never destroy",
+                ],
+            ),
+            (
+                "telemetry",
+                &["`class:\"memory_misdelivery\"`", "`m1nd-mcp --inbox-sweep`"],
+            ),
+            (
+                "delegate",
+                &["`delegate {agent_id, task}`", "it never says merge-safe"],
+            ),
+            (
+                "missions",
+                &[
+                    "**WORK RUNS INSIDE — the burst wears the wire.**",
+                    "SINGLE-AGENT",
+                ],
+            ),
+            ("soul", &["`soul_check`", "grader ≠ author"]),
+            (
+                "write_surface",
+                &["RATIFY IS EXCLUSIVELY HUMAN", "`m1nd-mission-letter-v0`"],
+            ),
+            (
+                "voice",
+                &[
+                    "THE PULSE",
+                    "CADENCE — the default is NEGATIVE",
+                    "TRANSLATION DUTY",
+                    "THE DEEP RUNG (R2) IS YOURS",
+                    "ASCII FALLBACK (1:1)",
+                    "THE COCKPIT (`cockpit`)",
+                    "the counterfactual test",
+                ],
+            ),
+            ("verbs", &["`am_i_stale(claim)`", "`coverage_session`"]),
+        ];
+        let anchored: Vec<&str> = anchors.iter().map(|(topic, _)| *topic).collect();
+        assert_eq!(
+            anchored,
+            crate::help_topics::ids(),
+            "every topic is anchored, in card order"
+        );
+
+        for (id, lines) in anchors {
+            let answer = served_help(
+                &mut state,
+                serde_json::json!({"agent_id": "card", "topic": id}),
+            );
+            assert_eq!(answer["found"], true, "help {{topic:{id}}}: {answer}");
+            let formatted = answer["formatted"].as_str().unwrap_or_default();
+            let topic = crate::help_topics::find(id).expect("topic exists");
+            assert!(
+                formatted.contains(topic.body),
+                "help {{topic:{id}}} must serve the whole card"
+            );
+            for line in *lines {
+                assert!(
+                    formatted.contains(line),
+                    "help {{topic:{id}}} must carry {line:?}"
+                );
+            }
+        }
+
+        // An agent's spelling is forgiven; an unknown topic is answered with the list.
+        let spelled = served_help(
+            &mut state,
+            serde_json::json!({"agent_id": "card", "topic": " Write-Surface "}),
+        );
+        assert_eq!(spelled["found"], true, "{spelled}");
+        let unknown = served_help(
+            &mut state,
+            serde_json::json!({"agent_id": "card", "topic": "no-such-card"}),
+        );
+        assert_eq!(unknown["found"], false, "{unknown}");
+        let listed = unknown["formatted"].as_str().unwrap_or_default();
+        for id in crate::help_topics::ids() {
+            assert!(listed.contains(id), "the topic index must name {id}");
+        }
+    }
+
+    /// The card carries the loop, the honest answers and the write laws in one
+    /// line each, and names every doctrine card it no longer pushes.
+    #[test]
+    fn the_instructions_name_every_help_topic() {
+        let s = super::M1ND_INSTRUCTIONS;
+        let pull = s
+            .split("## The doctrine, on pull")
+            .nth(1)
+            .expect("the card ends with the pull line");
+        for id in crate::help_topics::ids() {
+            assert!(pull.contains(id), "the pull line must name topic {id}");
+        }
+        for fact in [
+            // north first, then the loop, closed by co_change.
+            "`north(task)` FIRST",
+            "`seek(query)`",
+            "`impact(node)`",
+            "`co_change`",
+            // Honest answers.
+            "absent / null / abstain / reverify / insufficient_evidence are REAL answers",
+            // Reception governs writes.
+            "caller_root_mismatch",
+            "make NO writes",
+            // Birth is the human's gesture; refresh is the agent's only ingest.
+            "`m1nd init --birth <repo>`: offer that exact command and stop",
+            "`ingest {mode:\"refresh\"}` is the only ingest an agent runs",
+            // A graph behind the checkout says so, with the call that cures it.
+            "`graph_drift` on `north` or `health`: the graph is behind your checkout",
+            // The marks and the door to the whole registry.
+            "`POLICY-DISABLED (authority floor …)`",
+            "`help` catalogs the WHOLE registry at every tier",
+        ] {
+            assert!(s.contains(fact), "the instructions must carry {fact:?}");
+        }
+    }
+
+    /// The menu is a card per verb; the registry is the book, and `help` reads
+    /// the book. Nothing a host validates a call against may change between the
+    /// two, and everything the card leaves out must be on the verb's help page.
+    #[test]
+    fn core_menu_serves_a_card_and_help_serves_the_rest() {
+        let cards: BTreeSet<&str> = super::CORE_MENU_CARDS
+            .iter()
+            .map(|(name, _)| *name)
+            .collect();
+        let menu_names: BTreeSet<&str> = core_menu_tool_names().into_iter().collect();
+        assert_eq!(cards, menu_names, "every core verb has exactly one card");
+
+        let registry = all_tool_schemas();
+        let registry_tool = |name: &str| -> serde_json::Value {
+            registry["tools"]
+                .as_array()
+                .expect("tools array")
+                .iter()
+                .find(|tool| tool["name"] == name)
+                .cloned()
+                .unwrap_or_else(|| panic!("{name} missing from the registry"))
+        };
+
+        fn prose_free(schema: &serde_json::Value) -> bool {
+            match schema {
+                serde_json::Value::Object(map) => {
+                    !map.contains_key("description")
+                        && !map.contains_key("default")
+                        && map.iter().all(|(key, value)| {
+                            key == "properties"
+                                && value
+                                    .as_object()
+                                    .is_some_and(|props| props.values().all(prose_free))
+                                || key != "properties" && prose_free(value)
+                        })
+                }
+                serde_json::Value::Array(items) => items.iter().all(prose_free),
+                _ => true,
+            }
+        }
+        fn without_prose(schema: &serde_json::Value) -> serde_json::Value {
+            let mut copy = schema.clone();
+            super::strip_schema_prose(&mut copy);
+            copy
+        }
+
+        for tier in ["core", "investigate"] {
+            for tool in tool_schemas_for_tier(tier)["tools"]
+                .as_array()
+                .expect("tools array")
+            {
+                let name = tool["name"].as_str().expect("tool name");
+                let Some((_, card)) = super::CORE_MENU_CARDS.iter().find(|(n, _)| *n == name)
+                else {
+                    // The investigate extras are not core verbs: they pass through.
+                    assert_eq!(*tool, registry_tool(name), "{name} must pass through");
+                    continue;
+                };
+                let full = registry_tool(name);
+                let description = tool["description"].as_str().unwrap_or_default();
+                assert!(
+                    description.contains(card),
+                    "{tier} menu must serve {name}'s card: {description}"
+                );
+                assert!(
+                    prose_free(&tool["inputSchema"]),
+                    "{name}'s menu schema must carry no description or default"
+                );
+                assert_eq!(
+                    tool["inputSchema"],
+                    without_prose(&full["inputSchema"]),
+                    "{name}'s menu schema must keep every name, type, enum and required field"
+                );
+            }
+        }
+
+        // What the card leaves out is on the verb's help page.
+        let mut input: crate::protocol::layers::HelpInput =
+            serde_json::from_value(serde_json::json!({"agent_id": "card"})).expect("input");
+        input.render = Some(crate::protocol::layers::HelpRender::Full);
+        for name in menu_names {
+            let full = registry_tool(name);
+            let entry = crate::help_guidance::catalog_entry(name).expect("help entry");
+            input.tool_name = Some(name.to_string());
+            let page = crate::help_guidance::build_tool_resolution(&entry, &input).formatted;
+            let description = full["description"].as_str().unwrap_or_default();
+            assert!(
+                page.contains(description),
+                "help(tool_name={name}) must serve the full description"
+            );
+            let properties = full["inputSchema"]["properties"]
+                .as_object()
+                .expect("properties");
+            for (param, schema) in properties {
+                let nested = schema
+                    .pointer("/items/properties")
+                    .or_else(|| schema.get("properties"))
+                    .and_then(serde_json::Value::as_object)
+                    .map(|fields| fields.values().cloned().collect::<Vec<_>>())
+                    .unwrap_or_default();
+                for prose in std::iter::once(schema)
+                    .chain(nested.iter())
+                    .filter_map(|schema| schema.get("description"))
+                    .filter_map(serde_json::Value::as_str)
+                {
+                    assert!(
+                        page.contains(prose),
+                        "help(tool_name={name}) must explain {param}: {prose:?}"
+                    );
+                }
+            }
+        }
+    }
+
+    /// The menu card is an advertisement too: a floor-gated core verb carries the
+    /// POLICY-DISABLED mark and its floor names there, derived from the same
+    /// table the gate enforces, and an open verb never claims it.
+    #[test]
+    fn core_menu_cards_keep_every_floor_gate_mark() {
+        let catalog = m1nd_control::m1nd10_action_catalog().expect("canonical action catalog");
+        let floors: std::collections::BTreeMap<&str, m1nd_control::AuthorityFloor> = catalog
+            .entries
+            .iter()
+            .map(|entry| (entry.action.as_str(), entry.authority_floor))
+            .collect();
+        let mut gated = 0usize;
+        for tier in ["core", "investigate"] {
+            for tool in tool_schemas_for_tier(tier)["tools"]
+                .as_array()
+                .expect("tools array")
+            {
+                let name = tool["name"].as_str().expect("tool name");
+                let description = tool["description"].as_str().unwrap_or_default();
+                let gated_floors: BTreeSet<&str> = crate::action_routes::possible_mcp_actions(name)
+                    .unwrap_or_else(|| panic!("unrouted menu verb {name}"))
+                    .into_iter()
+                    .filter_map(|action| floors.get(action))
+                    .filter(|floor| !super::generic_dispatch_floor_is_available(**floor))
+                    .map(|floor| super::authority_floor_name(*floor))
+                    .collect();
+                if gated_floors.is_empty() || super::TYPED_CONSUMER_TOOLS.contains(&name) {
+                    assert!(
+                        !description.contains(super::FLOOR_GATE_MARKER),
+                        "{name} is open and must not claim to be policy-disabled"
+                    );
+                    continue;
+                }
+                gated += 1;
+                assert!(
+                    description.contains(super::FLOOR_GATE_MARKER)
+                        && gated_floors.iter().all(|floor| description.contains(floor)),
+                    "{tier} menu card for {name} must carry {} and its floors {gated_floors:?}: \
+                     {description}",
+                    super::FLOOR_GATE_MARKER
+                );
+            }
+        }
+        assert!(
+            gated >= 2,
+            "ingest and boot_memory are gated; found {gated}"
+        );
     }
 
     #[test]

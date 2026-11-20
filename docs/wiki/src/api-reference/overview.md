@@ -2,6 +2,12 @@
 
 m1nd exposes the live MCP tool surface over JSON-RPC 2.0 via stdio. Every tool requires `agent_id` as a parameter. The exported MCP schema uses underscore-based canonical names such as `trail_resume`, `perspective_start`, and `apply_batch`. `tools/list` returns the selected menu, not the entire registry. Use `help` and `health.tool_surface_contract` for full discovery; `M1ND_TOOL_TIER=full` expands the advertised menu.
 
+A host loads the server instructions and `tools/list` into every session before its first call, so both are kept short. The instructions are an operating card: the loop (`north`, then `seek`, then `impact` and its `co_change`), the honest answers, the write laws and the door. On the default and `investigate` menus each core verb carries a one-to-three-sentence card and an input schema with names, types, enums and required fields only. The rest is one call away:
+
+- `help {"tool_name": "<verb>"}` returns the verb's full description, every optional parameter with its default and description, and the fields of object parameters such as `claims[].evidence`.
+- `help {"topic": "<id>"}` returns a doctrine card: `reception`, `menu`, `authority`, `north`, `recall`, `verdicts`, `capture`, `promotion`, `telemetry`, `delegate`, `missions`, `soul`, `write_surface`, `voice` or `verbs`. An unknown topic lists them.
+- `M1ND_TOOL_TIER=full` serves every verb with its full registry description.
+
 The grouped pages below still keep historical prefixed anchors for stable links, but executable `tools/call` examples use the canonical bare names returned by `tools/list`.
 
 Several tools now do more than return raw results. On the main structural flows you should expect some combination of:

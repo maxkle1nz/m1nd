@@ -2421,6 +2421,10 @@ pub struct HelpInput {
     /// Render mode for the formatted help text.
     #[serde(default)]
     pub render: Option<HelpRender>,
+    /// Doctrine card behind the server instructions (`help_topics`). Takes
+    /// precedence over every other selector; an unknown id lists the cards.
+    #[serde(default)]
+    pub topic: Option<String>,
 }
 
 #[derive(Clone, Copy, Debug, Serialize, Deserialize, PartialEq, Eq)]
