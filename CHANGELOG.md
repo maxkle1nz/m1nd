@@ -91,6 +91,15 @@ qualified or published (see [docs/RELEASE-2.0.0-PROPOSAL.md](docs/RELEASE-2.0.0-
   "ACTOR_TURN_CENSUS"`, `graph_counts_age_secs`) and uptime keeps moving. When
   no reading exists, counts are `null` with `graph_counts_unavailable_reason`,
   never `0`. See the [REST surface](docs/wiki/src/architecture/mcp-server.md).
+- **The activation query no longer depends on hash order either:** seed families
+  and the merged activation dimensions were collected from `HashMap`s and sorted by
+  score alone, so equal scores kept hash order, and the seed cut and the `top_k` cut
+  kept a different subset in each process. On one repository `north` returned 10
+  distinct focus lists for one task in 10 processes, its top file missing from 2. Seeds
+  and activated nodes now break equal scores by ascending node id (`find_seeds`,
+  `find_seeds_semantic`, `merge_dimensions` and the re-sort after the PageRank boost).
+  Scores do not change; `activate`, `orient`, `north` and `delegate` give one answer for
+  one graph and one query.
 - **Ranking no longer depends on hash order:** the semantic engine summed n-gram
   norms and dot products, and file-group seek summed BM25 terms, in `HashMap`/`HashSet`
   order, and cut equal semantic scores at top-k in that order. Two processes over the

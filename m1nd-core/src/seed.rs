@@ -373,13 +373,15 @@ impl SeedFinder {
                 .or_insert((i, r, specificity));
         }
 
-        // Collect, filter, sort, cap
+        // Collect, filter, sort, cap. The family map is iterated in hash order,
+        // which differs from process to process; equal relevance breaks by node
+        // id so the cut keeps the same seeds everywhere.
         let mut results: Vec<(NodeId, FiniteF32)> = best_by_family
             .iter()
             .map(|(_, (i, r, _))| (NodeId::new(*i as u32), FiniteF32::new(*r)))
             .collect();
 
-        results.sort_by_key(|entry| std::cmp::Reverse(entry.1));
+        sort_seeds(&mut results);
         results.truncate(cap);
         Ok(results)
     }
@@ -410,8 +412,14 @@ impl SeedFinder {
             *score = FiniteF32::new(blended);
         }
 
-        seeds.sort_by_key(|entry| std::cmp::Reverse(entry.1));
+        sort_seeds(&mut seeds);
         seeds.truncate(max_seeds.min(MAX_SEEDS));
         Ok(seeds)
     }
+}
+
+/// Rank seeds by relevance, descending, and equal relevance by ascending node
+/// id, so a seed cut keeps the same nodes in every process.
+fn sort_seeds(seeds: &mut [(NodeId, FiniteF32)]) {
+    seeds.sort_by(|a, b| b.1.cmp(&a.1).then(a.0 .0.cmp(&b.0 .0)));
 }

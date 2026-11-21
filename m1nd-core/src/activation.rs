@@ -721,6 +721,16 @@ const PAGERANK_BOOST: f32 = 0.1;
 /// Minimum score threshold for dimension contribution.
 const DIM_CONTRIBUTION_THRESHOLD: f32 = 0.01;
 
+/// Rank activated nodes by score, descending, and equal scores by ascending
+/// node id, so a top-k cut keeps the same nodes in every process.
+pub fn sort_activated(activated: &mut [ActivatedNode]) {
+    activated.sort_by(|a, b| {
+        b.activation
+            .cmp(&a.activation)
+            .then(a.node.0.cmp(&b.node.0))
+    });
+}
+
 /// Merge four DimensionResults into a single ranked ActivationResult.
 /// Applies DIMENSION_WEIGHTS, resonance bonus (FM-ACT-001 fix: 4-dim checked first).
 pub fn merge_dimensions(
@@ -751,7 +761,9 @@ pub fn merge_dimensions(
         }
     }
 
-    // Merge into per-node combined scores
+    // Merge into per-node combined scores. The map is iterated in hash order,
+    // which differs from process to process; the ranking below breaks equal
+    // scores by node id so which nodes survive the cut never depends on it.
     let mut node_scores: HashMap<u32, [f32; 4]> = HashMap::new();
     for (dim_idx, result) in results.iter().enumerate() {
         for &(node, score) in &result.scores {
@@ -795,8 +807,8 @@ pub fn merge_dimensions(
         })
         .collect();
 
-    // Sort descending, truncate to top_k
-    activated.sort_by_key(|entry| std::cmp::Reverse(entry.activation));
+    // Sort descending, equal scores by ascending node id, truncate to top_k
+    sort_activated(&mut activated);
     activated.truncate(top_k);
 
     Ok(ActivationResult {
