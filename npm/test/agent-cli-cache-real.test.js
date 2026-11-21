@@ -290,7 +290,9 @@ test("warm state-dir refresh precedes graph queries and returns newly edited sym
       assert.ok(refresh < tools.indexOf(queryTool), tools.join(","));
       if (queryTool === "search") {
         const candidates = payload.results.flatMap((entry) => entry.results || []);
-        assert.ok(candidates.some((item) => item.graph_linked === true
+        // Lean search rows drop `graph_linked` (only `detail: true` carries it); a graph
+        // node id on the row is what proves the hit is linked to the refreshed graph.
+        assert.ok(candidates.some((item) => item.graph_linked !== false
           && item.node_id === `file::src/signal.js::fn::${symbol}`), JSON.stringify(candidates));
       }
       const graph = JSON.parse(fs.readFileSync(path.join(runtime, "graph_snapshot.json"), "utf8"));
