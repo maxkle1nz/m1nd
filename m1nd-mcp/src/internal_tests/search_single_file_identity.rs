@@ -22,7 +22,7 @@ fn search(state: &mut SessionState, mode: &str) -> Value {
         "search",
         &json!({
             "agent_id":"identity-test", "query":"unique_marker", "mode":mode,
-            "auto_ingest":false
+            "auto_ingest":false, "detail":true
         }),
     )
     .unwrap()

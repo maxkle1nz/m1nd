@@ -1653,6 +1653,8 @@ pub(crate) fn run_bootstrap_core(
                     "task": format!(
                         "first orientation of the {north_key} project brain right after its one-call bootstrap"
                     ),
+                    // The bootstrap packet is the brain's first full orientation.
+                    "detail": true,
                 }),
             )
         })

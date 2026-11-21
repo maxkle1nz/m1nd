@@ -222,3 +222,37 @@ fn a_default_answer_honours_the_callers_own_budget_and_context() {
     assert_eq!(own_cap["results"].as_array().expect("rows").len(), 50);
     assert!(own_cap.get("rows_omitted").is_none(), "{own_cap}");
 }
+
+#[test]
+fn a_default_answer_with_no_match_keeps_the_repair_once() {
+    let temp = tempfile::tempdir().expect("tempdir");
+    let mut state = build_state(temp.path());
+
+    let answer = search(&mut state, json!({"query": "no_such_token_anywhere"}));
+    let bytes = served_bytes(&answer);
+    assert!(
+        bytes <= SEARCH_DEFAULT_BUDGET_BYTES,
+        "a default answer with no match is {bytes} bytes: {answer}"
+    );
+    assert_eq!(answer["total_matches"], 0);
+    assert_eq!(
+        answer["recovery"]["expected_output_schema"]
+            .as_str()
+            .or_else(|| answer["recovery"]["auto_action"]["expected_output_schema"].as_str()),
+        Some("m1nd-recovery-playbook-v0"),
+        "the repair stays on a failed retrieval: {answer}"
+    );
+    assert!(
+        answer.get("agent_runtime_contract").is_none(),
+        "the contract repeats the same recovery; it rides detail: true"
+    );
+
+    let full = search(
+        &mut state,
+        json!({"query": "no_such_token_anywhere", "detail": true}),
+    );
+    assert_eq!(
+        full["agent_runtime_contract"]["recovery"], full["recovery"],
+        "detail keeps the contract, which carries the same recovery"
+    );
+}

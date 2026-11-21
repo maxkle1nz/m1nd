@@ -950,7 +950,7 @@ fn assert_dropped_contribution_is_named(owner: &mut Owner) {
     );
     let north = owner.call(
         "north",
-        serde_json::json!({ "agent_id": AGENT, "task": UNIQUE_SYMBOL }),
+        serde_json::json!({ "agent_id": AGENT, "task": UNIQUE_SYMBOL, "detail": true }),
     );
     let gaps = north["honest_gaps"]
         .as_array()
@@ -1243,7 +1243,8 @@ fn prompt_or_tool_text_cannot_authorize_a_sibling_workspace() {
         "north",
         serde_json::json!({
             "agent_id": AGENT,
-            "task": format!("inspect {} sibling_only_signal_7c2a", sibling.display())
+            "task": format!("inspect {} sibling_only_signal_7c2a", sibling.display()),
+            "detail": true
         }),
     );
     let north_code = serde_json::to_string(&north["code"]).expect("encode north code");

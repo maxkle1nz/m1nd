@@ -2,7 +2,7 @@
 
 m1nd exposes the live MCP tool surface over JSON-RPC 2.0 via stdio. Every tool requires `agent_id` as a parameter. The exported MCP schema uses underscore-based canonical names such as `trail_resume`, `perspective_start`, and `apply_batch`. `tools/list` returns the selected menu, not the entire registry. Use `help` and `health.tool_surface_contract` for full discovery; `M1ND_TOOL_TIER=full` expands the advertised menu.
 
-A host loads the server instructions and `tools/list` into every session before its first call, so both are kept short. The instructions are an operating card: the loop (`north`, then `seek`, then `impact` and its `co_change`), the honest answers, the write laws and the door. On the default and `investigate` menus each core verb carries a one-to-three-sentence card and an input schema with names, types, enums and required fields only. The rest is one call away:
+A host loads the server instructions and `tools/list` into every session before its first call, so both are kept short. The instructions are an operating card: the loop (`north`, then `seek`, then `impact` and its `co_change`), the honest answers, the write laws and the door. On the default and `investigate` menus each core verb carries a one-to-three-sentence card and an input schema that names its required parameters and the few it is usually called with, with types and enums but no prose; every other parameter is still accepted. The whole card is held to 10,000 characters, about 2,500 tokens. The rest is one call away:
 
 - `help {"tool_name": "<verb>"}` returns the verb's full description, every optional parameter with its default and description, and the fields of object parameters such as `claims[].evidence`.
 - `help {"topic": "<id>"}` returns a doctrine card: `reception`, `menu`, `authority`, `north`, `recall`, `verdicts`, `capture`, `promotion`, `telemetry`, `delegate`, `missions`, `soul`, `write_surface`, `voice` or `verbs`. An unknown topic lists them.
@@ -273,7 +273,8 @@ exclusion or extra authority. See [the recipe](../../../GRAPH-CHANGE-TRACKING.md
 For an ingested single-file root, graph-linked literal/regex `search` rows retain
 that file's canonical graph ID, including when its filesystem path is in native
 Windows canonical form. `graph_linked: false` identifies disk fallback, not proof
-that a returned ID belongs to the graph. Ambiguous relative identities across
+that a returned ID belongs to the graph (`graph_linked` rides `detail: true` rows; default
+rows are lean). Ambiguous relative identities across
 distinct roots omit the file-content mapping; identical canonical root aliases
 deduplicate. This correction grants no parent/sibling access and changes no lock
 or mutation authority. See [the limits and workflow](../../../GRAPH-CHANGE-TRACKING.md).

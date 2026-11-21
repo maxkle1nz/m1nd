@@ -137,6 +137,8 @@ export function useCardV2Data(enabled: boolean, self: InstanceSelfResponse | nul
       try {
         const north = await api.tool<{ context?: { coverage?: { visited?: number; total?: number } }; honest_gaps?: string[] }>('north', {
           task: 'card receipt coverage',
+          // coverage and honest_gaps ride the full packet only.
+          detail: true,
         });
         let ghost: number | null = null;
         try {

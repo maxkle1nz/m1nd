@@ -33,6 +33,124 @@ type GuidedRuntimeTuple = (
 
 const SEARCH_SNIPPET_MAX_CHARS: usize = 500;
 
+/// Bytes the rows of a default `search` answer may take, measured as they are
+/// served: pretty-printed at the depth they sit in the response. With the
+/// response envelope and the lean top-level fields the whole answer stays
+/// under 4 KB. Measured on this repository's graph (2026-11-20), a default
+/// answer of 50 rows with two context lines each was 27 KB.
+pub(crate) const SEARCH_LEAN_ROWS_BUDGET_BYTES: usize = 2_800;
+
+/// Response fields only `detail: true` carries: the next-step rationale and
+/// the confidence behind it. `next_step_hint` names the same step in one line.
+const SEARCH_DETAIL_ONLY_FIELDS: &[&str] = &[
+    "confidence",
+    "why_this_next_step",
+    "what_is_missing",
+    "next_suggested_tool",
+    "next_suggested_target",
+];
+
+/// The default `search` answer, cut from the full one.
+///
+/// Rows keep `node_id`, `type`, `file_path`, `line_number` and
+/// `matched_line`, plus `label` when it differs from `node_id`, `score` when
+/// the mode ranks, and context lines when the caller asked for them. They drop
+/// `graph_linked` and per-row `heuristic_signals`. The response drops the
+/// next-step rationale and the `agent_runtime_contract`, which stays only when
+/// its status is not `ok` and the response does not already carry its
+/// `recovery` (then the contract is the repair). A failed retrieval keeps
+/// `graph_state` and `recovery` either way. With `pack`, the
+/// ranked rows are kept best-first while they fit
+/// [`SEARCH_LEAN_ROWS_BUDGET_BYTES`], and a cut is declared: `truncated`,
+/// `rows_omitted` and an `inline_summary` naming the ways to the rest.
+/// Callers that set their own `max_output_chars` or `token_budget` are not
+/// packed again.
+pub(crate) fn lean_search_payload(payload: &mut serde_json::Value, pack: bool) {
+    let Some(response) = payload.as_object_mut() else {
+        return;
+    };
+    for key in SEARCH_DETAIL_ONLY_FIELDS {
+        response.remove(*key);
+    }
+    let contract_redundant = response
+        .get("agent_runtime_contract")
+        .is_some_and(|contract| {
+            contract.get("status").and_then(|status| status.as_str()) == Some("ok")
+                || contract
+                    .get("recovery")
+                    .is_some_and(|recovery| response.get("recovery") == Some(recovery))
+        });
+    if contract_redundant {
+        response.remove("agent_runtime_contract");
+    }
+    let Some(rows) = response
+        .get_mut("results")
+        .and_then(|rows| rows.as_array_mut())
+    else {
+        return;
+    };
+    for row in rows.iter_mut() {
+        lean_search_row(row);
+    }
+    if !pack {
+        return;
+    }
+    let returned = rows.len();
+    let mut used = 0usize;
+    let mut kept = 0usize;
+    for row in rows.iter() {
+        let size = served_row_bytes(row);
+        if kept > 0 && used + size > SEARCH_LEAN_ROWS_BUDGET_BYTES {
+            break;
+        }
+        used += size;
+        kept += 1;
+    }
+    if kept == returned {
+        return;
+    }
+    rows.truncate(kept);
+    let omitted = returned - kept;
+    response.insert("truncated".into(), serde_json::json!(true));
+    response.insert("rows_omitted".into(), serde_json::json!(omitted));
+    response.insert(
+        "inline_summary".into(),
+        serde_json::json!(format!(
+            "{kept} of {returned} ranked rows fit the default answer; narrow scope or \
+             filename_pattern, lower top_k, or pass max_output_chars or detail: true for the rest."
+        )),
+    );
+}
+
+/// One row of a default `search` answer.
+fn lean_search_row(row: &mut serde_json::Value) {
+    let Some(fields) = row.as_object_mut() else {
+        return;
+    };
+    fields.remove("graph_linked");
+    fields.remove("heuristic_signals");
+    if fields.get("label") == fields.get("node_id") {
+        fields.remove("label");
+    }
+    for key in ["context_before", "context_after"] {
+        if fields
+            .get(key)
+            .and_then(|lines| lines.as_array())
+            .is_some_and(|lines| lines.is_empty())
+        {
+            fields.remove(key);
+        }
+    }
+}
+
+/// A row's size as the MCP text serves it: pretty-printed, every line
+/// indented four more spaces (the row sits inside `results`), plus the
+/// separator after it.
+fn served_row_bytes(row: &serde_json::Value) -> usize {
+    let pretty = serde_json::to_string_pretty(row).unwrap_or_default();
+    pretty.len() + 4 * pretty.lines().count() + 2
+}
+
 fn search_contract(results: &[SearchResultEntry]) -> GuidedRuntimeTuple {
     if let Some(result) = results.first() {
         (
@@ -329,7 +447,10 @@ pub fn handle_search(state: &mut SessionState, input: SearchInput) -> M1ndResult
 
     // Clamp parameters (ADVERSARY S2: hard cap at 500)
     let top_k = (input.top_k as usize).clamp(1, 500);
-    let context_lines = input.context_lines.clamp(0, 10);
+    let context_lines = input
+        .context_lines
+        .unwrap_or(if input.detail { 2 } else { 0 })
+        .clamp(0, 10);
     let auto_ingest_state = maybe_auto_ingest_search_scope(state, &input)?;
     let auto_ingested = !auto_ingest_state.auto_ingested_paths.is_empty();
 
@@ -1884,7 +2005,7 @@ mod tests {
                 scope: Some(scope.clone()),
                 top_k: 10,
                 case_sensitive: true,
-                context_lines: 0,
+                context_lines: Some(0),
                 invert: false,
                 count_only: false,
                 multiline: false,
@@ -1892,6 +2013,7 @@ mod tests {
                 filename_pattern: Some("*.rs".into()),
                 max_output_chars: None,
                 token_budget: None,
+                detail: false,
             };
 
             let output = handle_search(state, input).expect("search output");
@@ -1980,7 +2102,7 @@ mod tests {
             scope: Some("src".into()),
             top_k: 10,
             case_sensitive: false,
-            context_lines: 0,
+            context_lines: Some(0),
             invert: false,
             count_only: false,
             multiline: false,
@@ -1988,6 +2110,7 @@ mod tests {
             filename_pattern: Some("*.rs".into()),
             max_output_chars: None,
             token_budget: None,
+            detail: false,
         };
 
         let output = handle_search(&mut state, input).expect("search output");
@@ -2026,7 +2149,7 @@ mod tests {
                 scope: Some("src".into()),
                 top_k: 10,
                 case_sensitive: true,
-                context_lines: 1,
+                context_lines: Some(1),
                 invert: false,
                 count_only: false,
                 multiline: false,
@@ -2034,6 +2157,7 @@ mod tests {
                 filename_pattern: Some("*.js".into()),
                 max_output_chars: None,
                 token_budget: None,
+                detail: false,
             },
         )
         .expect("search output");
@@ -2088,7 +2212,7 @@ mod tests {
                 scope: None,
                 top_k: 10,
                 case_sensitive: true,
-                context_lines: 0,
+                context_lines: Some(0),
                 invert: false,
                 count_only: false,
                 multiline: false,
@@ -2096,6 +2220,7 @@ mod tests {
                 filename_pattern: None,
                 max_output_chars: None,
                 token_budget: None,
+                detail: false,
             },
         )
         .expect("search output");
@@ -2125,7 +2250,7 @@ mod tests {
                 scope: None,
                 top_k: 10,
                 case_sensitive: false,
-                context_lines: 0,
+                context_lines: Some(0),
                 invert: false,
                 count_only: false,
                 multiline: false,
@@ -2133,6 +2258,7 @@ mod tests {
                 filename_pattern: None,
                 max_output_chars: None,
                 token_budget: None,
+                detail: false,
             },
         )
         .expect("search output");
@@ -2229,7 +2355,7 @@ mod tests {
             scope: Some(outside.to_string_lossy().to_string()),
             top_k: 10,
             case_sensitive: false,
-            context_lines: 0,
+            context_lines: Some(0),
             invert: false,
             count_only: false,
             multiline: false,
@@ -2237,6 +2363,7 @@ mod tests {
             filename_pattern: Some("*.rs".into()),
             max_output_chars: None,
             token_budget: None,
+            detail: false,
         };
 
         let error = handle_search(&mut state, input)
@@ -2284,7 +2411,7 @@ mod tests {
             scope: Some("site-out/src".into()),
             top_k: 10,
             case_sensitive: false,
-            context_lines: 0,
+            context_lines: Some(0),
             invert: false,
             count_only: false,
             multiline: false,
@@ -2292,6 +2419,7 @@ mod tests {
             filename_pattern: Some("*.rs".into()),
             max_output_chars: None,
             token_budget: None,
+            detail: false,
         };
 
         let output = handle_search(&mut state, input).expect("search output");
@@ -2341,7 +2469,7 @@ mod tests {
                 scope: Some(escape.to_string_lossy().into_owned()),
                 top_k: 10,
                 case_sensitive: true,
-                context_lines: 0,
+                context_lines: Some(0),
                 invert: false,
                 count_only: false,
                 multiline: false,
@@ -2349,6 +2477,7 @@ mod tests {
                 filename_pattern: Some("*.rs".into()),
                 max_output_chars: None,
                 token_budget: None,
+                detail: false,
             },
         )
         .expect_err("symlink escape must fail closed");
@@ -2394,7 +2523,7 @@ mod tests {
             scope: Some(shared.into()),
             top_k: 10,
             case_sensitive: false,
-            context_lines: 0,
+            context_lines: Some(0),
             invert: false,
             count_only: false,
             multiline: false,
@@ -2402,6 +2531,7 @@ mod tests {
             filename_pattern: Some("*.rs".into()),
             max_output_chars: None,
             token_budget: None,
+            detail: false,
         };
 
         let err = handle_search(&mut state, input).unwrap_err();
@@ -2427,7 +2557,7 @@ mod tests {
             scope: Some("src".into()),
             top_k: 10,
             case_sensitive: false,
-            context_lines: 0,
+            context_lines: Some(0),
             invert: false,
             count_only: false,
             multiline: false,
@@ -2435,6 +2565,7 @@ mod tests {
             filename_pattern: Some("*.rs".into()),
             max_output_chars: None,
             token_budget: None,
+            detail: false,
         };
 
         let err = handle_search(&mut state, input).unwrap_err().to_string();
@@ -2457,7 +2588,7 @@ mod tests {
             scope: None,
             top_k: 10,
             case_sensitive: false,
-            context_lines: 0,
+            context_lines: Some(0),
             invert: false,
             count_only: false,
             multiline: false,
@@ -2465,6 +2596,7 @@ mod tests {
             filename_pattern: Some("[".into()),
             max_output_chars: None,
             token_budget: None,
+            detail: false,
         };
 
         let err = handle_search(&mut state, input).unwrap_err().to_string();
@@ -2487,7 +2619,7 @@ mod tests {
             scope: None,
             top_k: 10,
             case_sensitive: false,
-            context_lines: 0,
+            context_lines: Some(0),
             invert: false,
             count_only: false,
             multiline: false,
@@ -2495,6 +2627,7 @@ mod tests {
             filename_pattern: None,
             max_output_chars: None,
             token_budget: None,
+            detail: false,
         };
 
         let err = handle_search(&mut state, input).unwrap_err().to_string();

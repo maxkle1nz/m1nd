@@ -86,13 +86,24 @@ every read, `memorize`, `delegate`, `trail_save`, the perspective family, plain 
         id: "north",
         title: "PRE-ORIENT — never start cold",
         body: "\
-Call `north(task)` FIRST, before reading or editing anything. One round-trip returns: \
-binding trust (`trust_mode`; the repair travels with it when degraded), task context \
-(focus nodes + PageRank anchors), prior cross-session memory (each claim with its real \
-age + author — absent, never faked, when unknown), a sufficiency signal, one \
-`next_move`, `honest_gaps` (what m1nd does NOT yet know), and — when missions \
-await the human landing — the `landing_bell` (a `merge_wait` count + one honest \
-line, absent when none do). If it returns `needs_ingest`, do not call generic \
+Call `north(task)` FIRST, before reading or editing anything. The default answer is lean, \
+about 1 KB: `state`, one word, and `focus`, one `path:lines symbol` line per focus node in \
+activation order (`lines` is `start-end` when the graph recorded the symbol's span, `start` \
+when it recorded only its first line; a file node reads `(file)`). On a healthy graph the \
+state is the sufficiency verdict: `sufficient` (the focus set holds the relevant context — stop \
+gathering), `gathering` (relevant context did not fit — raise `top_k` or refine the task) or \
+`saturated` (the task is weakly represented here). Otherwise it names the trouble: \
+`mismatch`, `no_brain`, `needs_ingest` or `degraded`. Memory rows, the `landing_bell` and \
+`graph_drift` ride the lean answer only when present.
+
+`detail: true` returns the full packet: binding trust (`trust_mode`; the repair travels with it \
+when degraded), task context (focus nodes + PageRank anchors), prior cross-session memory (each \
+claim with its real age + author — absent, never faked, when unknown), a sufficiency signal, one \
+`next_move`, `honest_gaps` (what m1nd does NOT yet know), `human_view` and `code`. An abnormal \
+answer — `caller_root_mismatch`, no project brain, `needs_ingest`, a binding that is not full \
+trust, `graph_drift`, or another mutating session on the same brain — returns the full packet \
+without being asked, because then the diagnostics ARE the answer. If it returns \
+`needs_ingest`, do not call generic \
 `ingest` to REPLACE or MERGE — those stay policy-disabled. Read the packet's \
 `next_move`, which names WHICH repair is live, and SAY IT rather than retrying a \
 refusal. A repo with NO brain gets one from the HUMAN's one-time ceremony \
@@ -108,20 +119,20 @@ when your caller root is exactly that root; it refuses rather than shrink the gr
 composes trust_selftest + orient + boot_memory + focus — reach for the pieces directly \
 only when you need just one.
 
-**north hands back the CODE, not just the address.** The packet carries `code`: the real \
-source of its top focus nodes — the symbol's own lines when the node names one, the file \
-head when it does not — for up to 3 distinct files inside a ~2,000-char budget. READ IT \
-BEFORE YOU GO FETCH ANYTHING. Do not grep, `sed`, or re-open a file north already handed \
-you; that second trip is the one this payload exists to save. Every slice states \
-`file_path`, its line span, `total_lines` vs `lines_returned` and `truncated`, so you \
-always know what you are missing: when a slice is truncated, `surgical_context(file_path, \
-symbol)` or `batch_view(files)` serves the rest — the SAME verbs the payload was composed \
-from, so nothing new is learned by calling them on untruncated code. Widen the first call \
-with `code_budget_chars` instead of paying a round-trip; pass `code: false` if you truly \
-want orientation only. The payload is ABSENT — not empty — wherever the packet already \
-says the graph cannot answer for your repo: `needs_ingest`, an empty graph, no project \
-brain, and `caller_root_mismatch` (under a mismatch those file bytes would be ANOTHER \
-repo's source, which is the most convincing form of context poisoning there is).",
+**north hands back the CODE, not just the address.** With `detail: true` (or `code: true` on \
+the lean answer) the packet carries `code`: the real source of its top focus nodes — always a \
+symbol's own lines, never a file head — for up to 3 distinct files inside a ~2,000-char budget. \
+`surgical_context` serves a symbol it finds at the node's own first line; otherwise `view` \
+serves the lines the graph recorded for the node (a Go method, a document section). A file \
+whose only focus node is the file itself gets no slice and counts in `files_omitted`. READ IT \
+BEFORE YOU GO FETCH ANYTHING. Every slice states `file_path`, its line span, `total_lines` vs \
+`lines_returned` and `truncated`, so you always know what you are missing: when a slice is \
+truncated, `surgical_context(file_path, symbol)` or `view(file_path, offset, limit)` serves \
+the rest. Widen the first call with `code_budget_chars` instead of paying a round-trip; pass \
+`code: false` for the full packet without code. The payload is ABSENT — not empty — wherever \
+the packet already says the graph cannot answer for your repo: `needs_ingest`, an empty graph, \
+no project brain, and `caller_root_mismatch` (under a mismatch those file bytes would be \
+ANOTHER repo's source, which is the most convincing form of context poisoning there is).",
     },
     HelpTopic {
         id: "recall",

@@ -2264,9 +2264,10 @@ pub struct SearchInput {
     /// Case-sensitive matching for literal/regex modes. Default: false.
     #[serde(default)]
     pub case_sensitive: bool,
-    /// Include N lines of context around each match. Default: 2.
-    #[serde(default = "default_context_lines")]
-    pub context_lines: u32,
+    /// Include N lines of context around each match (0-10). Default: 0, or 2
+    /// with `detail: true`.
+    #[serde(default)]
+    pub context_lines: Option<u32>,
 
     // --- v0.5.0 additions ---
     /// Return lines that DON'T match the query (grep -v). Default: false.
@@ -2304,13 +2305,19 @@ pub struct SearchInput {
     /// what was kept vs dropped. None = unbudgeted (behavior unchanged).
     #[serde(default)]
     pub token_budget: Option<usize>,
+    /// When true, the answer is the full one: every row carries its context
+    /// lines (2 unless `context_lines` says otherwise), `graph_linked` and its
+    /// label, and the response carries the next-step diagnostics and the
+    /// `agent_runtime_contract`. Default false: lean rows (`node_id`, `type`,
+    /// `file_path`, `line_number`, `matched_line`) packed best-first into a
+    /// bounded answer whose cut is declared. Rows are ranked the same way
+    /// either way, so a lean answer is a prefix of the detailed one.
+    #[serde(default)]
+    pub detail: bool,
 }
 
 fn default_search_top_k() -> u32 {
     50
-}
-fn default_context_lines() -> u32 {
-    2
 }
 
 /// Output for search.

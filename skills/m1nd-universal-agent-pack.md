@@ -32,10 +32,12 @@ outside that contract, or the recovery returned by the installed runtime.
 This does not authorize a shared brain, a binding move, generic replace/merge,
 or an agent-performed human ceremony.
 
-In a live MCP session the front door is one call: `north(task)`. It returns
-binding trust, task context (focus nodes + PageRank anchors), prior
-cross-session memory, a sufficiency signal, one `next_move`, and `honest_gaps`
-in a single packet, before any query. If it returns `needs_ingest` (empty/unbound
+In a live MCP session the front door is one call: `north(task)`. Its default
+answer is a one-word `state` (`sufficient` means stop gathering) and one
+`path:lines symbol` line per focus node. `detail: true` returns binding trust,
+task context (focus nodes + PageRank anchors), prior cross-session memory, a
+sufficiency signal, one `next_move`, and `honest_gaps` in a single packet,
+before any query; an abnormal answer returns that packet unasked. If it returns `needs_ingest` (empty/unbound
 graph), that is a real answer, not a failure — and it is NOT yours to fix with
 `ingest`, which is refused on every transport. Follow the packet's `next_move`:
 a repo with no brain needs the HUMAN's one-time `m1nd init --birth <repo>` (offer
@@ -100,7 +102,7 @@ repair, refresh the host, or mutate the graph.
 
 ## The m1nd Voice — rendering `human_view`
 
-The north packet carries `human_view` (`m1nd-human-view-v0`): the m1nd voice for
+The full north packet (`detail: true`, or any abnormal answer) carries `human_view` (`m1nd-human-view-v0`): the m1nd voice for
 the HUMAN — a server-composed, already-mounted card (the `m1nd` wordmark + the
 PULSE row + `│` gutter fixed at column 6; ≤4 lines, ≤80 chars/line; states
 `clean | bell |
@@ -207,9 +209,10 @@ Upgrade the binding to repo root or record
 For unfamiliar repo work, audits, bug hunts, reviews, and risky changes, use
 this loop by default:
 
-1. Orient with `north(task)`. One round-trip returns binding trust, task
-   context, prior cross-session memory, a sufficiency signal, one `next_move`,
-   and `honest_gaps`. `needs_ingest` → follow the packet's `recovery_playbook`
+1. Orient with `north(task)`: a one-word `state` and one `path:lines symbol`
+   line per focus node; `detail: true` adds binding trust, task context, prior
+   cross-session memory, a sufficiency signal, one `next_move`, and
+   `honest_gaps`. `needs_ingest` → follow the packet's `recovery_playbook`
    (it consults the live mutation policy: generic `ingest` where allowed;
    otherwise `blocked`, naming the real repair — a refresh you run, or the
    human's one-time `m1nd init --birth <repo>` you offer) → `north` again.

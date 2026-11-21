@@ -338,16 +338,17 @@ fn test_search_context_lines() {
     )
     .expect("deserialize");
 
-    assert_eq!(input.context_lines, 3);
+    assert_eq!(input.context_lines, Some(3));
+    let context_lines = input.context_lines.unwrap_or_default() as usize;
 
     let out = build_search_output("validate", "literal", 2);
     for r in &out.results {
         assert!(
-            r.context_before.len() <= input.context_lines as usize,
+            r.context_before.len() <= context_lines,
             "context_before must have <= context_lines entries"
         );
         assert!(
-            r.context_after.len() <= input.context_lines as usize,
+            r.context_after.len() <= context_lines,
             "context_after must have <= context_lines entries"
         );
     }

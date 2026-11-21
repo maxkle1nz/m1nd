@@ -5,6 +5,14 @@
 pre-orient packet, passing every honesty signal straight through and never fabricating
 context on an empty/unbound graph.
 
+The packet below is the FULL packet: `detail: true`, or any abnormal answer (mismatch,
+no project brain, needs_ingest, binding not full trust, graph_drift, a collision). A healthy
+default answer is its lean projection (`north_lean_packet`): `schema`, `state` (one word:
+the sufficiency verdict, or the abnormal state's name) and `focus` (one `path:lines symbol`
+line per focus node, from `north_focus_lines`), plus the first 3 memory rows, `landing_bell`,
+`graph_drift` and an explicitly requested `code`, each only when present. `state` and
+`focus` ride every packet, so the lean answer is a strict projection of the full one.
+
 ## Class
 
 ```mermaid
@@ -37,6 +45,8 @@ classDiagram
         +human_view: Option~HumanView~ (present iff composed)
         +graph_drift: Option~Value~ (present iff indexed commit != caller checkout HEAD; graph_drift.rs)
         +proof_state: "triaging"
+        +state: one word (sufficient|gathering|saturated|mismatch|no_brain|needs_ingest|degraded)
+        +focus: Vec~"path:lines symbol"~
         +non_claims: [4 disclaimers]
     }
 

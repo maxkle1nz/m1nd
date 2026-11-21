@@ -54,21 +54,23 @@ For unfamiliar repo work, audits, bug hunts, reviews, and risky changes, the
 measured high-signal pattern starts by never starting cold:
 
 1. Call `north(task)` FIRST, before reading or editing anything. It is the
-   in-session front door. One round-trip returns binding trust (`trust_mode`;
+   in-session front door. The default answer is lean: a one-word `state`
+   (`sufficient` means stop gathering) and one `path:lines symbol` line per focus
+   node. `detail: true` returns the full packet — binding trust (`trust_mode`;
    repair travels with it when degraded), task context (focus nodes + PageRank
    anchors), prior cross-session memory (each claim with real age + author —
    absent, never faked, when unknown), a sufficiency signal, one `next_move`,
    and `honest_gaps` (what m1nd does NOT know) — plus `code`, the real SOURCE of
-   the top focus nodes (the symbol's own lines, or the file head when a node
-   names no symbol) for up to 3 files inside a ~2,000-char budget, each slice
-   declaring `total_lines` vs `lines_returned` and `truncated`. Read that payload
-   instead of grepping or re-opening what north just named; widen the first call
-   with `code_budget_chars` rather than paying a second round-trip, and pass
-   `code: false` when you want orientation only. When `graph_drift` is present,
+   the top focus nodes (always a symbol's own lines, never a file head) for up
+   to 3 files inside a ~2,000-char budget, each slice declaring `total_lines` vs
+   `lines_returned` and `truncated`; an abnormal answer (mismatch,
+   `needs_ingest`, degraded trust, `graph_drift`) returns it unasked. Read the
+   payload instead of grepping or re-opening what north just named; widen the
+   first call with `code_budget_chars` rather than paying a second round-trip. When `graph_drift` is present,
    the graph is behind your checkout: run its `refresh` call, or read line
    numbers as of `indexed`. `north` composes
    `trust_selftest` + `orient` + `boot_memory` + `focus` +
-   `surgical_context`/`batch_view`; reach for the pieces directly only when you
+   `surgical_context`/`view`; reach for the pieces directly only when you
    need just one. Heed `reception`:
    `reception.match == "caller_root_mismatch"` means the bound graph does NOT
    cover your current repo — do not trust retrieval for it; read
@@ -864,7 +866,7 @@ DIFFERENT agent — grader ≠ author.
 
 ## The m1nd Voice — rendering `human_view`
 
-The north packet carries `human_view` (`m1nd-human-view-v0`): the m1nd voice for
+The full north packet (`detail: true`, or any abnormal answer) carries `human_view` (`m1nd-human-view-v0`): the m1nd voice for
 the HUMAN — a server-composed, already-mounted card (the `m1nd` wordmark + the
 PULSE row + `│` gutter fixed at column 6; ≤4 lines, ≤80 chars/line; states
 `clean | bell |
