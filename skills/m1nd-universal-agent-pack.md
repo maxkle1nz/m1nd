@@ -244,11 +244,9 @@ this loop by default:
    `surgical_context_v2`.
    Ask `impact` about a function, never a whole file: `causal_chains` comes
    capped at the strongest 20 (`causal_chains_truncated` says when; raise it
-   with `max_causal_chains`). Before you call a change done, read `impact`'s
-   `co_change` for each file you touched: up to five files that usually
-   changed in the same commits — mostly docs, manifests, and release
-   metadata, not hidden code coupling. Check every partner outside your
-   diff. Absent means no recorded history, not proof that nothing moves.
+   with `max_causal_chains`). `impact` also carries `co_change`: files that
+   historically changed together. In tests it did not beat "most-changed
+   files", so it is a hint, not evidence — never a done-check.
 7. Close warmer than you found it: `memorize` every durable finding (with
    `confidence` and repo-relative `evidence` paths). Generic `learn` stays
    authority-blocked; its internal `correct`/`wrong` path changes relevance
@@ -553,8 +551,9 @@ situation.
 - Stacktrace or runtime error text -> `trace`
 - Risky change -> `impact` (on a function), `predict`, `validate_plan`, then
   usually `surgical_context_v2`
-- Calling a change done -> `impact`'s `co_change` on each touched file; check
-  partners outside your diff
+- Calling a change done -> compiler and tests; `impact`'s `co_change` is a
+  hint (files that historically changed together; it did not beat
+  "most-changed files" in tests), not evidence
 - Deep architecture/risk -> RETROBUILDER. Use `taint_trace` for trust-boundary
   or sensitive flow, `twins` for structural duplication, and `refactor_plan` for
   extraction communities; `timeline` reads a file's history. (`ghost_edges` and
@@ -639,8 +638,8 @@ Before risky edits:
 3. Use `validate_plan` for missing work.
 4. Use `surgical_context_v2` for compact edit context.
 5. Run compiler/tests/runtime checks for execution truth.
-6. Before calling the change done, read `impact`'s `co_change` for each touched
-   file and check every partner outside your diff.
+6. `impact`'s `co_change` (files that historically changed together) is a hint,
+   not evidence: in tests it did not beat "most-changed files".
 
 `m1nd` complements the compiler, test runner, LSP, debugger, security scanner,
 and local file truth. It does not replace them.

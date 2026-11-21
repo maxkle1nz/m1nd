@@ -28,9 +28,9 @@ Ask `seek` a question in plain language — "where is retry backoff decided" —
 
 `impact` walks the graph out from one node. With `direction: "reverse"` it follows the edges that point into the node — for a function, the code that reaches it, which is what breaks when it changes. Aim it at a function `seek` returned, not at a type or a file, where same-named methods blur together. Before the cap, one call on a whole file answered 3.6 MB, two thirds of it causal chains; the chains now stop at the strongest 20 (2.0, unreleased; `max_causal_chains` asks for more), and the same call answers about 40 KB with the same blast radius. Routing "who calls / what breaks" questions to `impact` added one or two facts out of 24 over `seek` alone. That is a small gain on a small sample: a direction, not a law. Confirm callers with your compiler or a literal `search` before you edit. **PROVEN (small n).**
 
-### THE FILES YOU FORGET TO CHANGE.
+### CO-CHANGE IS A HINT, NOT EVIDENCE.
 
-"Grep finds what exists. m1nd finds what's missing." was this project's first promise; today it has one honest meaning. On `main` (2.0, unreleased; [#606](https://github.com/maxkle1nz/m1nd/pull/606)), when the brain's root is a git repository, `impact` carries `co_change`: up to five files that changed in the same commits as the target's file and that the graph does not link to it directly, each with its joint-commit count and the short sha of the latest — `git show` it to watch the pair move. Offline, with thresholds registered before the run, on three repositories (m1nd, gin, express): 34–58% of co-changed pairs were partners neither grep nor import edges reach, precision at 5 ran 0.49–0.85, and all three passed. Restricted to source files, it failed in two of the three. So it finds the sibling manifest, the coupled doc, the release metadata — the files an agent forgets to change together — not hidden code-to-code coupling, one Go repository aside. On m1nd's own pull request it named two skill files the change had left behind, 19 joint commits each. **PROVEN (n=3 repositories; source-only failed 2 of 3).**
+On `main` (2.0, unreleased; [#606](https://github.com/maxkle1nz/m1nd/pull/606)), when the brain's root is a git repository, `impact` carries `co_change`: up to five files that changed in the same commits as the target's file, each with its joint-commit count and the short sha of the latest. These are files that historically changed together. An earlier offline run on three repositories looked promising, but two later experiments with a popularity control (2026-11-21) found it did not beat simply listing the most-changed files: added to an agent's file list it recovered 1 of 21 missed files where the control recovered 7, and its confirmed warnings mostly reflected hot files. Read it as a hint, not evidence. **NOT PROVEN (failed against a popularity control, 2 of 2).**
 
 ### ORIENTATION IN ONE CALL.
 
@@ -55,13 +55,13 @@ What I measured, on how much, and where it stops.
 | Lean `seek` rows (#607, 2.0, unreleased) | Median packet 10,736 → 4,270 tokens (−60%); ranking identical 16/16; facts with their span unchanged | 16 questions | Bracketed against `main` with frozen plasticity; diagnostics need `detail: true` |
 | Blast radius with `impact` | Relation questions routed to `impact`: +1/+2 facts of 24 (11/24 against 10/24 with symbols alone) | 24 facts | Small sample; re-measure before treating it as a rule |
 | Causal-chain cap on `impact` (2.0, unreleased) | Reverse `impact` on a large file: 3.6 MB → 40 KB; blast radius identical on 2 files and 3 functions | 5 targets | Answer size, not accuracy; `max_causal_chains` returns the full list |
-| Co-change partners on `impact` (#606, 2.0, unreleased) | Partners that neither grep nor import edges reach: 34–58% of co-changed pairs; precision at 5: 0.49–0.85; thresholds registered before the run; passed 3/3 | 3 repositories (m1nd, gin, express) | Offline, on history. Restricted to source files it failed 2 of 3: it finds files changed together (manifests, docs, release metadata), not hidden code coupling |
+| Co-change partners on `impact` (#606, 2.0, unreleased) | Did not beat a "most-changed files" control: 1 of 21 missed files recovered against 7; confirmed warnings mostly hot files | 2 experiments against a popularity control | Retracted as a claim; the field stays as a hint |
 | Graph drift note (#608, 2.0, unreleased) | 234 bytes when the graph is behind; 0 bytes at `HEAD`; paired warm latency +1.1 ms median | one repository | It reports drift and names the refresh call; it does not refresh |
 | Ingest and refresh | 18,078 nodes and 78,981 edges in 19 s; exact-root refresh 0.49 s | one machine | Sandbox; the refresh was measured on a ~2.6k-node repository |
 | Standing decisions | A decisions block in `AGENTS.md` answered 5/5 by cold sessions on three hosts; the same facts through `memorize`: 0/5 | 5 per channel | This is why I do not claim memory carries decisions |
 | Orientation | `north` is the only verb agents adopted unprompted | real traffic | An observation; the benefit is not measured |
 
-Not measured yet: whether m1nd beats `grep` and plain file reads on real tasks. That experiment has not run, so I make no such claim. The co-change experiment measured reach on history, not whether agents finish tasks better.
+Not measured yet: whether m1nd beats `grep` and plain file reads on real tasks. That experiment has not run, so I make no such claim. The co-change claim was withdrawn after it failed against a popularity control.
 
 ## Install
 
@@ -186,7 +186,7 @@ m1nd-mcp --attach auto --stdio
 | Find where a behavior lives | `seek` with a plain-language question | Open the symbol span. A top score near 0.4 with unrelated hits usually means the concept is absent; confirm with a literal `search`. |
 | Plan a cross-file change | `impact` with `direction: "reverse"` on a function | Confirm callers with the compiler, tests, or a literal `search`; unresolved edges are gaps. |
 | Check that the graph is current | `health` once, then `ingest {"mode": "refresh"}` from the exact declared root | On `main`, `north` and `health` carry `graph_drift`, with the exact call, when the graph is behind. On 1.6.5, compare `git rev-parse HEAD` with the commit you last ingested. |
-| Call a change done | `impact` on a function in each file you touched; read `co_change` (2.0, unreleased) | A partner outside your diff is a question: `git show` its `last` commit and decide whether it moves too. |
+| Call a change done | Your tests and the compiler; `impact` on a function you touched for its callers | `co_change` lists files that historically changed together; it did not beat "most-changed files" in tests, so treat it as a hint, not evidence. |
 | Find a verb that is not on the menu | `help` with `tool_name` | Read its `POLICY-DISABLED` mark before planning around it. |
 
 See [worked examples](EXAMPLES.md), [use cases](docs/use-cases.md), and the [tool reference](docs/wiki/src/api-reference/overview.md). Published 1.6.5 also offers `M1ND_TOOL_TIER=investigate`: the core plus five session-local snapshot tools ([recipe](docs/GRAPH-CHANGE-TRACKING.md)). A listed or callable tool may still require authority the current session does not have.
@@ -200,7 +200,7 @@ If you are an agent, this section is yours. The full manual is [docs/AGENT-BEST-
 3. Call `health` once per session, not per question. On `main`, a `graph_drift` note on `north` or `health` means the graph is behind your checkout: run its `refresh` call, or read lines as of `indexed`. On 1.6.5, compare `HEAD` yourself.
 4. Read the envelope. `reverify` means open the source. `absent` and `abstain` are answers.
 5. Before you conclude a capability is missing, ask `help` with `tool_name`. Builds before #604 suggest `learn`, `ghost_edges`, `audit`, or `ingest` with merge or replace: ignore them, they refuse every generic client.
-6. Before you call a change done, read `impact`'s `co_change` for the files you touched (2.0, unreleased). Partners outside your diff are the files agents forget: manifests, docs, release metadata.
+6. `impact`'s `co_change` lists files that historically changed together. In tests it did not beat "most-changed files": a hint, not evidence. Do not treat it as a checklist.
 7. Put standing decisions in the agent file your host always loads (`AGENTS.md`, `CLAUDE.md`), not in `memorize`: 5/5 against 0/5.
 
 Host packs ship in [skills/](skills/) (`m1nd-first`, `m1nd-guardian`, `m1nd-operator`); setup for coding agents is in the [agent installation guide](llms-install.md).

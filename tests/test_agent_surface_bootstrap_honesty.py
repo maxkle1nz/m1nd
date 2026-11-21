@@ -37,6 +37,18 @@ FORBIDDEN_TEACHINGS = (
     "Docs/specs -> `ingest` with `adapter=",
 )
 
+# The retracted co_change claims (failed against a popularity control,
+# 2026-11-21): reading `co_change` as a done-check or as proof of forgotten files.
+RETRACTED_CO_CHANGE_TEACHINGS = (
+    "THE FILES YOU FORGET TO CHANGE",
+    "read `impact`'s `co_change` for",
+    "read `impact`'s\n   `co_change` for",
+    "Partners outside your diff are the files agents forget",
+    "check every partner outside your diff",
+    "Check every partner outside your\n   diff",
+    "passed 3/3",
+)
+
 # Everything an agent or a new user reads as instruction. AGENTS.md is included
 # because the repo's own doctrine file drifted too — it taught the withdrawn call
 # in both write laws while the runtime had already withdrawn it.
@@ -136,6 +148,28 @@ class AgentSurfaceBootstrapHonesty(unittest.TestCase):
                 text,
                 f"{relative} must name the honest bootstrap state, not just omit the lie",
             )
+
+
+    def test_no_agent_surface_teaches_co_change_as_a_done_check(self):
+        # `impact`'s `co_change` failed twice against a popularity control
+        # (2026-11-21): it did not beat listing the most-changed files. The field
+        # stays, described as a hint; the surfaces may not teach it as evidence or
+        # as a step before calling a change done.
+        surfaces = list(self._agent_surfaces()) + [
+            (pathlib.Path("docs/AGENT-BEST-PRACTICES.md"), REPO_ROOT / "docs/AGENT-BEST-PRACTICES.md")
+        ]
+        offences = []
+        for relative, path in surfaces:
+            text = path.read_text(encoding="utf-8")
+            for teaching in RETRACTED_CO_CHANGE_TEACHINGS:
+                if teaching in text:
+                    offences.append(f"{relative} teaches {teaching!r}")
+        self.assertEqual(
+            offences,
+            [],
+            "co_change is a hint, not evidence; these surfaces still teach the retracted "
+            "claim:\n  " + "\n  ".join(offences),
+        )
 
 
 if __name__ == "__main__":

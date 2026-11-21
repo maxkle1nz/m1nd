@@ -9,7 +9,7 @@ Seven tools for impact analysis, prediction, counterfactual simulation, fingerpr
 ## `impact`
 Impact radius / blast analysis for a node. Propagates signal outward from a source node to determine which other nodes would be affected by a change. Supports forward (downstream), reverse (upstream), and bidirectional analysis.
 
-When the brain's root is a git repository, `impact` also answers "what else usually changes when this changes" with a compact `co_change` field (see [Co-change partners](#impact-co-change)).
+When the brain's root is a git repository, `impact` also lists files that historically changed together in a compact `co_change` field, a hint rather than evidence (see [Co-change partners](#impact-co-change)).
 
 ### Parameters
 
@@ -79,7 +79,7 @@ When the brain's root is a git repository, `impact` also answers "what else usua
 
 ### Co-change partners (`co_change`)
 
-Files that historically changed in the same commits as the target's file — the sibling manifest, the doc that describes the code, release metadata — which neither text search nor the structural graph links to it.
+Files that historically changed in the same commits as the target's file. **A hint, not evidence:** in two experiments against a popularity control (2026-11-21) it did not beat simply listing the most-changed files — added to an agent's file list it recovered 1 of 21 missed files where the control recovered 7. Do not use it as a checklist before calling a change done.
 
 | Key | Meaning |
 |-----|---------|
