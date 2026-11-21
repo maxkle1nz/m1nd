@@ -110,11 +110,9 @@ measured high-signal pattern starts by never starting cold:
    `surgical_context_v2`.
    Ask `impact` about a function, never a whole file: `causal_chains` comes
    capped at the strongest 20 (`causal_chains_truncated` says when; raise it
-   with `max_causal_chains`). Before you call a change done, read `impact`'s
-   `co_change` for each file you touched: up to five files that usually
-   changed in the same commits — mostly docs, manifests, and release
-   metadata, not hidden code coupling. Check every partner outside your
-   diff. Absent means no recorded history, not proof that nothing moves.
+   with `max_causal_chains`). `impact` also carries `co_change`: files that
+   historically changed together. In tests it did not beat "most-changed
+   files", so it is a hint, not evidence — never a done-check.
 6. Record the investigation path: m1nd calls, recovery decisions, files
    inspected, commands run, and fallback reason.
 
@@ -679,9 +677,9 @@ source reads, tests, runtime probes, or CI evidence.
 - Have a stacktrace or runtime error text: use `trace`.
 - Need blast radius before editing: use `impact` on a function, not a whole
   file (`causal_chains` capped at 20; `max_causal_chains` raises it).
-- Need co-change follow-through after editing: read `impact`'s `co_change`
-  for each touched file and check partners outside your diff (files usually
-  changed together: mostly docs, manifests, metadata). Use `predict` for ranked
+- Curious what historically moved with a file: `impact`'s `co_change` lists
+  files that changed together; it did not beat "most-changed files" in tests,
+  so it is a hint, not evidence. Use `predict` for ranked
   candidates to inspect. Its current verdicts abstain because all v1
   calibration rows are unqualified; running `calibrate_predict` does not arm
   the gate. Check the proposed coupling against source and executed evidence.

@@ -96,25 +96,15 @@ makes a file target cheap, not precise: aim at the function `seek` returned.
 
 ## 4. Before you call a change done
 
-**4.1 Read `impact`'s `co_change` for every file you touched; answer for each partner outside your
-diff.** `PROVEN` (n=3 repositories) + `OBSERVED` (n=1) — on `main` (2.0, unreleased, #606), when the
-brain's root is a git repository, `impact` carries up to five files that changed in the same commits
-as the target's file and that the graph does not link to it directly: `file`, `together` (joint
-commits), and `last` (`git show <last>` shows the pair changing together). A symbol target answers
-for its file, so aim at a function in each touched file; a file without symbols, such as a doc or a
-manifest, is its own target. In an offline experiment with thresholds registered before the run, on
-three repositories, 34–58% of co-changed pairs were partners that neither grep nor import edges
-reach, precision at 5 was 0.49–0.85, and all three passed. Restricted to source files it failed in
-two of the three, so expect the files agents forget to change together — sibling manifests, coupled
-docs, release metadata — not hidden code-to-code coupling. On m1nd's own drift-note pull request,
-`co_change` on the two touched source files named two skill files that changed with them 19 times
-each; the change had updated only a third skill, so agents loading the other two would never have
-learned the new field. It was fixed before merge.
-
-A partner is a question, not an order: it may not need to change. An absent field means no
-qualifying history, not proof that nothing moves with the file. The history is recorded by a code
-`ingest` refresh of a git root (`m1nd-mcp/src/co_change_history.rs`), so a graph last ingested by an
-earlier build carries no `co_change` until its next refresh.
+**4.1 Treat `impact`'s `co_change` as a hint, not evidence.** `RETRACTED` (2026-11-21) — on `main`
+(2.0, unreleased, #606), when the brain's root is a git repository, `impact` carries up to five files
+that historically changed in the same commits as the target's file (`file`, `together`, `last`). An
+earlier offline run on three repositories looked promising, and this manual once made reading it a
+step before calling a change done. Two later experiments against a popularity control refuted that:
+added to an agent's file list, `co_change` recovered 1 of 21 missed files where simply listing the
+most-changed files recovered 7, and the warnings it confirmed mostly reflected hot files. Use your
+tests and the compiler to decide a change is done; read `co_change` only as a hint of what moved
+together before. An absent field means no qualifying history.
 
 **4.2 End every task with one letter in the box.** `RULE` — append one JSON line to
 `~/.m1nd/field-reports.jsonl`; `m1nd-mcp/src/mailbox.rs` files it by `repo` into
@@ -214,8 +204,8 @@ source list in `compiled_producer_build_identity` (`m1nd-ingest/src/ownership.rs
 `seek` calls came from one proof harness.
 
 **9.7 Develop m1nd with m1nd.** `RULE` — `AGENTS.md`, "Develop m1nd with m1nd": `north`, `seek`, and
-`impact` while you work, `co_change` on every touched file before you call a change done (4.1), and
-one letter per task (4.2).
+`impact` while you work, and one letter per task (4.2). `co_change` is a hint, not a done-check
+(4.1).
 
 ## 10. Traps found in a code sweep (2026-11-19, verified in code), and what has closed since
 

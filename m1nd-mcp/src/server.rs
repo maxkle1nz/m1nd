@@ -52,7 +52,8 @@ memorizes, the next reads. This is the card; the doctrine is one `help {topic}` 
 means stop gathering) and `focus`: one `path:lines symbol` line per focus node. `detail: true` \
 adds binding, memory provenance, `honest_gaps` and `code`.
 2. `seek(query)` finds code by purpose; obey its `trust_envelope` and sufficiency.
-3. `impact(node)` before a change; read its `co_change` before you call it done.
+3. `impact(node)` before a change. Its `co_change` (files that historically changed together) \
+did not beat \"most-changed files\" in tests: a hint, not evidence.
 4. `memorize` durable findings with `confidence` and repo-relative `evidence` paths: they \
 surface in later `seek`/`north` and flag stale via `cross_verify(check:[\"evidence_freshness\"])`.
 When m1nd misbehaves, append one JSON line to `~/.m1nd/field-reports.jsonl` (local-only). \
@@ -731,7 +732,8 @@ pub(crate) const CORE_MENU_CARDS: &[(&str, &str)] = &[
     ),
     (
         "impact",
-        "Blast radius of changing a node; read its co_change before you call a change done.",
+        "Blast radius of changing a node. co_change: files that historically changed together; \
+         in tests it did not beat most-changed files, a hint, not evidence.",
     ),
     (
         "health",

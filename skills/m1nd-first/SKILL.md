@@ -154,11 +154,9 @@ this loop by default:
    `surgical_context_v2`.
    Ask `impact` about a function, never a whole file: `causal_chains` comes
    capped at the strongest 20 (`causal_chains_truncated` says when; raise it
-   with `max_causal_chains`). Before you call a change done, read `impact`'s
-   `co_change` for each file you touched: up to five files that usually
-   changed in the same commits — mostly docs, manifests, and release
-   metadata, not hidden code coupling. Check every partner outside your
-   diff. Absent means no recorded history, not proof that nothing moves.
+   with `max_causal_chains`). `impact` also carries `co_change`: files that
+   historically changed together. In tests it did not beat "most-changed
+   files", so it is a hint, not evidence — never a done-check.
 7. Close warmer than you found it: `memorize` every durable finding (with
    `confidence` and repo-relative `evidence` paths) so the next session starts
    ahead. Generic `learn` stays authority-blocked; its internal `correct`/`wrong`
@@ -486,8 +484,9 @@ paths, duplication, refactor seams, or runtime heat, check whether the agent CLI
 returned `capability_suggestions.family_id=retrobuilder`. If it did, use only
 the matching tools, then stop and prove directly:
 
-- files that "move together" -> `impact`'s `co_change` (files usually changed
-  in the same commits: mostly docs, manifests, metadata), then `timeline` on
+- files that "move together" -> `impact`'s `co_change` (files that historically
+  changed together; it did not beat "most-changed files" in tests: a hint, not
+  evidence), then `timeline` on
   the files (the matrix builder `ghost_edges` sits above the generic
   authority floor)
 - untrusted input, sensitive data, auth, privacy, or trust-boundary review ->

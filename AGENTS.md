@@ -300,8 +300,8 @@ launcher-granted runtime covers your checkout:
 - Orient with `north(task)`, find code with `seek`, and ask `impact` (`direction: "reverse"`, on a
   function, never a whole file) before you change a seam. Heed `graph_drift`: run its `refresh`
   call or read lines as of `indexed`. Open every span before you trust it.
-- Before you call a change done, read `impact`'s `co_change` for every file you touched and answer
-  for each partner outside your diff: the manifest, skill, or doc that usually moves with it.
+- `impact`'s `co_change` lists files that historically changed together. In tests it did not beat
+  "most-changed files", so it is a hint, not evidence: never a done-check.
 - Say what helped and what did not in the letter that ends the task (above). The evidence behind
   each practice is in `docs/AGENT-BEST-PRACTICES.md`.
 
