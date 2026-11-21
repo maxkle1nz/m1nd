@@ -198,6 +198,8 @@ function northViaHttp(baseUrl, repo, timeoutMs) {
       const body = JSON.stringify({
         agent_id: "m1nd-north-shim",
         task: "orient this session on the bound workspace",
+        // The voice card rides the full packet only.
+        detail: true,
       });
       const url = new URL(`${baseUrl.replace(/\/$/, "")}/api/tools/north`);
       const req = http.request(

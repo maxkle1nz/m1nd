@@ -344,7 +344,7 @@ export default function LivingTree({ viewedBrain = BOUND_VIEW, onIngest }: Livin
       setPreflight({ target: row.name, band, packet: null, impact: null, loading: true });
       const task = `edit ${row.path}`;
       const [packetR, impactR] = await Promise.allSettled([
-        api.tool<NorthPacket>('north', { task }, brain),
+        api.tool<NorthPacket>('north', { task, detail: true }, brain),
         row.externalId
           ? api.tool<ImpactOutput>('impact', { node_id: row.externalId }, brain)
           : Promise.reject(new Error('no node')),

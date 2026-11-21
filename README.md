@@ -34,7 +34,7 @@ Ask `seek` a question in plain language — "where is retry backoff decided" —
 
 ### ORIENTATION IN ONE CALL.
 
-`north` takes the task as a sentence and answers in one round trip: focus nodes, bounded source excerpts of the top ones (up to 3 files and 2,000 characters by default; `code_budget_chars` widens it), whether the graph is bound to the repository you are in, prior memory with author and real age, a suggested next move, and `honest_gaps` — what it could not see. It is the one verb agents picked up on their own in real traffic, without being told to. That is adoption, not a measured benefit. **OBSERVED.**
+`north` takes the task as a sentence and answers in one round trip. By default it answers a one-word `state` and one `path:lines symbol` line per focus node, under 1.5 KB (on `main`; 7–12 KB before, measured on 16 regression tasks). `detail: true` returns the full packet — bounded source excerpts of the top symbols (up to 3 files and 2,000 characters by default; `code_budget_chars` widens it), whether the graph is bound to the repository you are in, prior memory with author and real age, a suggested next move, and `honest_gaps`, what it could not see — and so does every abnormal answer (wrong repository, empty graph, degraded trust, graph behind your checkout). It is the one verb agents picked up on their own in real traffic, without being told to. That is adoption, not a measured benefit. **OBSERVED.**
 
 ### BOUNDED TRUST. REAL REFUSALS.
 
@@ -102,7 +102,7 @@ The agent should call `north` first, then `seek` and source reads as needed. **S
 
 ### Unreleased main: the 2.0.0 source tree
 
-Everything in this section is **unreleased**: it describes the current `main` source tree, not the published 1.6.5 artifacts. `main` adds PR580's learning-event separation, stable ranking (#601), symbol spans and lean rows on `seek` (#602, #607), `help` that routes only to callable verbs (#604, #605), `co_change` on `impact` (#606) and a cap on its causal chains, the `graph_drift` note on `north` and `health` (#608), automatic-freshness guards, a leaner tree, and a reworked host installer; see the [2.0.0 changelog entry](CHANGELOG.md) and the [release proposal](docs/RELEASE-2.0.0-PROPOSAL.md). The [dependency security updates](CHANGELOG.md#security) change the source lockfile; they do not update the published 1.6.5 binaries.
+Everything in this section is **unreleased**: it describes the current `main` source tree, not the published 1.6.5 artifacts. `main` adds PR580's learning-event separation, stable ranking (#601), symbol spans and lean rows on `seek` (#602, #607), `help` that routes only to callable verbs (#604, #605), `co_change` on `impact` (#606) and a cap on its causal chains, the `graph_drift` note on `north` and `health` (#608), lean default answers from `north` and `search` with a session card under 10,000 characters, automatic-freshness guards, a leaner tree, and a reworked host installer; see the [2.0.0 changelog entry](CHANGELOG.md) and the [release proposal](docs/RELEASE-2.0.0-PROPOSAL.md). The [dependency security updates](CHANGELOG.md#security) change the source lockfile; they do not update the published 1.6.5 binaries.
 
 A version string alone does not establish which changes a binary contains, so select an exact `main` revision and use its matching wrapper and native runtime. `m1nd-mcp --version` reports the commit it was built from.
 
@@ -182,7 +182,7 @@ m1nd-mcp --attach auto --stdio
 
 | Task | Start with | Check before acting |
 |---|---|---|
-| Understand unfamiliar code | `north` → `seek` → open the returned span | Is the graph bound to this repository? Read `honest_gaps`. |
+| Understand unfamiliar code | `north` → `seek` → open the returned span | Is the graph bound to this repository? A wrong or degraded binding answers in full; read its `honest_gaps`. |
 | Find where a behavior lives | `seek` with a plain-language question | Open the symbol span. A top score near 0.4 with unrelated hits usually means the concept is absent; confirm with a literal `search`. |
 | Plan a cross-file change | `impact` with `direction: "reverse"` on a function | Confirm callers with the compiler, tests, or a literal `search`; unresolved edges are gaps. |
 | Check that the graph is current | `health` once, then `ingest {"mode": "refresh"}` from the exact declared root | On `main`, `north` and `health` carry `graph_drift`, with the exact call, when the graph is behind. On 1.6.5, compare `git rev-parse HEAD` with the commit you last ingested. |

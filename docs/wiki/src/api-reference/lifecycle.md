@@ -8,10 +8,51 @@ This page covers the in-session front door, graph ingestion, document runtime op
 
 ## `north`
 The in-session front door. Call `north(task)` **before reading or editing
-anything**. In one round-trip it composes binding trust, task context (focus
-nodes + PageRank anchors), prior cross-session memory (each claim with its real
-age and author — absent, never faked, when unknown), a sufficiency signal, one
-`next_move`, and `honest_gaps` (what m1nd does not yet know).
+anything**.
+
+**The default answer is lean.** It carries `state`, one word, and `focus`, one
+`path:lines symbol` line per focus node in activation order:
+
+```json
+{
+  "schema": "m1nd-north-packet-v0",
+  "state": "sufficient",
+  "focus": [
+    "m1nd-mcp/src/search_handlers.rs:304-763 handle_search",
+    "m1nd-mcp/src/search_handlers.rs:1-2921 (file)",
+    "context.go:122 Copy"
+  ]
+}
+```
+
+`lines` is `start-end` when the extractor recorded the symbol's span and `start`
+when it recorded only the first line (Go, Python, TypeScript and Markdown nodes
+today); a file node reads `(file)`. On a healthy graph `state` is the sufficiency
+verdict lifted from `focus`: `sufficient` (stop gathering), `gathering` (relevant
+context did not fit) or `saturated` (the task is weakly represented in this
+graph). The first three memory rows, the `landing_bell` and `graph_drift` ride
+the lean answer only when present. Measured on 16 regression tasks
+(2026-11-21), the median default answer went from 11,275 to 858 bytes (at most
+1,153), with the same files in the same order wherever the previous build
+reproduced its own list.
+
+**`detail: true` returns the full packet**, and so does every abnormal answer
+without being asked: `caller_root_mismatch` (`state: "mismatch"`), no project
+brain (`no_brain`), `needs_ingest`, a binding that is not full trust
+(`degraded`), a `graph_drift` note, or another mutating session on the same
+brain. The full packet composes binding trust, task context (focus nodes +
+PageRank anchors), prior cross-session memory (each claim with its real age and
+author — absent, never faked, when unknown), a sufficiency signal, one
+`next_move`, `honest_gaps` (what m1nd does not yet know), `human_view` and
+`code`. The `state` and `focus` lines are the same either way.
+
+**`code`** carries the source of the top focus nodes: up to 3 files inside a
+2,000-character budget (`code_budget_chars` widens it). It rides with `detail`;
+`code: true` adds it to the lean answer and `code: false` removes it from the
+full one. A slice is always a symbol's own lines, never a file head:
+`surgical_context` serves a symbol it finds at the node's own first line, and
+otherwise `view` serves the lines the graph recorded for the node. A file named
+only by its file node gets no slice and counts in `files_omitted`.
 
 The packet also carries **`memory_exists`** — the ground-truth count of durable
 L1GHT claims in the on-disk store. It exists so a beat that surfaces no
@@ -89,7 +130,12 @@ binding is stale — not the default front door.
 | Parameter | Type | Required | Default | Description |
 |-----------|------|----------|---------|-------------|
 | `agent_id` | `string` | Yes | -- | Calling agent identifier. |
-| `task` | `string` | No | -- | Natural-language description of what you are about to do. Focuses task context and the `next_move`. |
+| `task` | `string` | Yes | -- | Natural-language description of what you are about to do. Focuses task context and the `next_move`. |
+| `top_k` | `integer` | No | `8` | Focus nodes (and `focus` lines) to return. |
+| `scope` | `string` | No | -- | Scope hint for orientation and the trust binding. |
+| `detail` | `boolean` | No | `false` | Return the full packet instead of the lean answer. |
+| `code` | `boolean` | No | `detail` | Carry the `code` payload. |
+| `code_budget_chars` | `integer` | No | `2000` | Character budget for the source in `code` (200..20000). |
 
 ### When to Use
 

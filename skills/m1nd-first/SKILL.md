@@ -71,21 +71,25 @@ heuristics, WORK AROUND and file one field-report line — never insist blindly,
 For unfamiliar repo work, audits, bug hunts, reviews, and risky changes, use
 this loop by default:
 
-1. Orient in one round-trip: `north(task)`. It composes binding trust, task
-   context (focus nodes + PageRank anchors), prior cross-session memory (each
-   claim with its real age + author), a sufficiency signal, one `next_move`, and
-   `honest_gaps` (what m1nd does NOT yet know). If it returns `needs_ingest`,
+1. Orient in one round-trip: `north(task)`. The default answer is lean: a
+   one-word `state` (`sufficient` means stop gathering) and one `path:lines symbol`
+   line per focus node — open those spans. `detail: true` returns the full packet:
+   binding trust, task context (focus nodes + PageRank anchors), prior
+   cross-session memory (each claim with its real age + author), a sufficiency
+   signal, one `next_move`, and `honest_gaps` (what m1nd does NOT yet know); an
+   abnormal answer (mismatch, `needs_ingest`, degraded trust, `graph_drift`)
+   returns it without being asked. If it returns `needs_ingest`,
    do not call generic `ingest`; OFFER the human `m1nd init --birth <repo>` (the
    one-time ceremony that mints a brain and ingests it for real) and stop, or use
    the isolated CLI investigation path / the exact typed authority consumer for an
    existing brain. `needs_ingest` is a real answer, not a failure. `north` composes `trust_selftest` + `orient` + `boot_memory` +
-   `focus` + `surgical_context`/`batch_view`; reach for the pieces directly only when
-   you need just one. **The packet carries `code` — the real source of its top focus
-   nodes** (the symbol's own lines, or the file head when a node names no symbol), up
-   to 3 files inside a ~2,000-char budget. Read it instead of going out to grep or
-   re-open what north just named; each slice declares `total_lines` vs `lines_returned`
-   and `truncated`, so widen the FIRST call with `code_budget_chars` rather than paying
-   a second round-trip (`code: false` gives the orientation-only packet). Heed
+   `focus` + `surgical_context`/`view`; reach for the pieces directly only when
+   you need just one. **With `detail: true` (or `code: true`) the packet carries
+   `code` — the real source of its top focus nodes** (always a symbol's own lines,
+   never a file head), up to 3 files inside a ~2,000-char budget. Read it instead of
+   going out to grep or re-open what north just named; each slice declares
+   `total_lines` vs `lines_returned` and `truncated`, so widen the FIRST call with
+   `code_budget_chars` rather than paying a second round-trip. Heed
    `reception`: `reception.match == "caller_root_mismatch"` means the bound graph
    does NOT cover your current repo — do not trust retrieval for it; read
    `reception.options[]`. Under that mismatch north answers FAST and marks the
@@ -268,7 +272,7 @@ Retrieval is forgiving; writing is not. Four things to know before any write:
 
 ## The m1nd Voice — rendering `human_view`
 
-The north packet carries `human_view` (`m1nd-human-view-v0`): the m1nd voice for
+The full north packet (`detail: true`, or any abnormal answer) carries `human_view` (`m1nd-human-view-v0`): the m1nd voice for
 the HUMAN — a server-composed, already-mounted card (the `m1nd` wordmark + the
 PULSE row + `│` gutter fixed at column 6; ≤4 lines, ≤80 chars/line; states
 `clean | bell |

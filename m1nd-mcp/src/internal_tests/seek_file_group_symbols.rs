@@ -551,7 +551,8 @@ fn semantic_search_rows_keep_their_shape() {
             "agent_id": "file-group-symbols",
             "query": NARRATIVE,
             "mode": "semantic",
-            "auto_ingest": false
+            "auto_ingest": false,
+            "detail": true
         }),
     )
     .expect("semantic search");
@@ -674,7 +675,7 @@ fn north_memory_recall_is_unchanged() {
         let north = dispatch_tool(
             &mut state,
             "north",
-            &json!({"agent_id": "northerner", "task": task}),
+            &json!({"agent_id": "northerner", "task": task, "detail": true}),
         )
         .expect("north");
         let memory: Vec<Value> = north["memory"]

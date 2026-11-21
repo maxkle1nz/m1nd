@@ -452,7 +452,7 @@ async fn bootstrap_creates_project_brain_without_touching_bound_graph() {
             &sid_bound,
             &bound_repo,
             "north",
-            serde_json::json!({"agent_id": "dev", "task": "bound_gravity_anchor"}),
+            serde_json::json!({"agent_id": "dev", "task": "bound_gravity_anchor", "detail": true}),
         )
         .await;
     let roots_bound = ingest_roots_of(&north_bound);
@@ -471,7 +471,7 @@ async fn bootstrap_creates_project_brain_without_touching_bound_graph() {
             &sid_b,
             &project_b,
             "north",
-            serde_json::json!({"agent_id": "project-b-agent", "task": "project_b_probe"}),
+            serde_json::json!({"agent_id": "project-b-agent", "task": "project_b_probe", "detail": true}),
         )
         .await;
     assert!(
@@ -527,7 +527,7 @@ async fn new_session_from_project_root_binds_silently() {
             &sid_new,
             &project_b,
             "north",
-            serde_json::json!({"agent_id": "fresh-session", "task": "project_b_probe"}),
+            serde_json::json!({"agent_id": "fresh-session", "task": "project_b_probe", "detail": true}),
         )
         .await;
     assert!(
@@ -549,7 +549,7 @@ async fn new_session_from_project_root_binds_silently() {
             &sid_dev,
             &bound_repo,
             "north",
-            serde_json::json!({"agent_id": "dev", "task": "bound_gravity_anchor"}),
+            serde_json::json!({"agent_id": "dev", "task": "bound_gravity_anchor", "detail": true}),
         )
         .await;
     assert!(
@@ -592,7 +592,7 @@ async fn project_brain_warm_boots_after_owner_restart() {
             &sid2,
             &project_b,
             "north",
-            serde_json::json!({"agent_id": "morning-session", "task": "project_b_probe"}),
+            serde_json::json!({"agent_id": "morning-session", "task": "project_b_probe", "detail": true}),
         )
         .await;
     assert!(
@@ -633,7 +633,7 @@ async fn reception_reports_the_closed_bootstrap_consumer_without_a_call() {
             &sid,
             &stranger,
             "north",
-            serde_json::json!({"agent_id": "stranger", "task": "orient"}),
+            serde_json::json!({"agent_id": "stranger", "task": "orient", "detail": true}),
         )
         .await;
     let reception = &north["reception"];
@@ -687,7 +687,7 @@ async fn a_served_medulla_mismatch_keeps_its_full_beat_not_the_fast_path() {
             &sid,
             &stranger,
             "north",
-            serde_json::json!({"agent_id": "stranger", "task": "orient"}),
+            serde_json::json!({"agent_id": "stranger", "task": "orient", "detail": true}),
         )
         .await;
 
@@ -800,7 +800,7 @@ async fn eviction_gate_bounds_the_map_and_persists_on_evict_surviving_kill9() {
                 &sid,
                 root,
                 "north",
-                serde_json::json!({"agent_id": "post-kill", "task": "orient"}),
+                serde_json::json!({"agent_id": "post-kill", "task": "orient", "detail": true}),
             )
             .await;
         assert!(
@@ -864,7 +864,7 @@ async fn reconnect_reception_prefers_the_existing_brain_over_the_host_cwd() {
             &sid_reconnect,
             &workspace,
             "north",
-            serde_json::json!({"agent_id": "reconnected", "task": "orient"}),
+            serde_json::json!({"agent_id": "reconnected", "task": "orient", "detail": true}),
         )
         .await;
 
@@ -920,7 +920,7 @@ async fn reconnect_unknown_root_keeps_the_plain_reception_and_a_match_stays_sile
             &sid_stranger,
             &stranger,
             "north",
-            serde_json::json!({"agent_id": "stranger", "task": "orient"}),
+            serde_json::json!({"agent_id": "stranger", "task": "orient", "detail": true}),
         )
         .await;
     let reception = &north_stranger["reception"];
@@ -950,7 +950,7 @@ async fn reconnect_unknown_root_keeps_the_plain_reception_and_a_match_stays_sile
             &sid_match,
             &project_b,
             "north",
-            serde_json::json!({"agent_id": "matched", "task": "project_b_probe"}),
+            serde_json::json!({"agent_id": "matched", "task": "project_b_probe", "detail": true}),
         )
         .await;
     assert!(

@@ -1122,7 +1122,7 @@ pub fn tool_docs() -> Vec<ToolDoc> {
                 ("top_k", "Max results (default: 50, max: 500)", false),
                 (
                     "context_lines",
-                    "Lines of context (default: 2, max: 10)",
+                    "Lines of context (default: 0, or 2 with detail; max: 10)",
                     false,
                 ),
                 (
@@ -1130,8 +1130,13 @@ pub fn tool_docs() -> Vec<ToolDoc> {
                     "Case-sensitive matching (default: false)",
                     false,
                 ),
+                (
+                    "detail",
+                    "Full rows and next-step diagnostics instead of the lean answer (default: false)",
+                    false,
+                ),
             ],
-            returns: "File matches with context lines and graph node cross-references",
+            returns: "Lean file matches (path, line, matched line) under about 4 KB; detail adds context lines and graph cross-references",
             example: r#"{"query": "ANTHROPIC_API_KEY", "agent_id": "jimi", "mode": "literal"}"#,
             next: &["view", "impact"],
         },

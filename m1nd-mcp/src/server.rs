@@ -43,83 +43,49 @@ const STDIO_ACTOR_SHUTDOWN_GRACE: Duration = Duration::from_secs(60);
 // `tests/session_card_budget.rs`.
 // ---------------------------------------------------------------------------
 const M1ND_INSTRUCTIONS: &str = "\
-m1nd is a neuro-symbolic code graph over this repo. It answers with bounded trust, not vibes: \
-absent / null / abstain / reverify / insufficient_evidence are REAL answers — prefer them over \
-guessing. Every tool call needs an `agent_id`. Knowledge is shared: what one agent proves and \
-memorizes, the next agent reads. This is the operating card; the full doctrine is one `help \
-{topic}` away (pull, never push).
+m1nd is a code graph over this repo. Every call needs an `agent_id`. absent / null / abstain / \
+reverify / insufficient_evidence are REAL answers: prefer them over guessing. What one agent \
+memorizes, the next reads. This is the card; the doctrine is one `help {topic}` away.
 
 ## The loop
-1. `north(task)` FIRST, before reading or editing anything. One call returns binding trust, \
-focus nodes, prior memory with its real age + author, one `next_move`, `honest_gaps`, and \
-`code` — the source of the top focus nodes. Read that code before you fetch anything again.
-2. `seek(query)` finds code by purpose. Obey its `trust_envelope` and sufficiency signal: \
-`sufficient` means stop gathering.
-3. `impact(node)` before you change it, and read its `co_change` (files that historically \
-change with the target) before you call the change done.
-4. `memorize` every durable finding as claims with `confidence` and repo-relative `evidence` \
-paths. Evidence anchors a claim to code, so it surfaces in later `seek`/`north` and self-flags \
-as stale via `cross_verify(check:[\"evidence_freshness\"])` when that code changes.
-Then report, never detour: when m1nd itself misbehaves, append one JSON line to \
-`~/.m1nd/field-reports.jsonl` (local-only, never phones home). `learn(correct|wrong)` and \
-`mission_close write_light_memory:true` sit above the authority floor today.
+1. `north(task)` FIRST, before reading or editing. It answers `state` (one word; `sufficient` \
+means stop gathering) and `focus`: one `path:lines symbol` line per focus node. `detail: true` \
+adds binding, memory provenance, `honest_gaps` and `code`.
+2. `seek(query)` finds code by purpose; obey its `trust_envelope` and sufficiency.
+3. `impact(node)` before a change; read its `co_change` before you call it done.
+4. `memorize` durable findings with `confidence` and repo-relative `evidence` paths: they \
+surface in later `seek`/`north` and flag stale via `cross_verify(check:[\"evidence_freshness\"])`.
+When m1nd misbehaves, append one JSON line to `~/.m1nd/field-reports.jsonl` (local-only). \
+`learn(correct|wrong)` and `mission_close write_light_memory:true` sit above the authority floor.
 
 ## Honest answers
-- `act` / `reverify` / `abstain`: `abstain` means unqualified or insufficient evidence — do \
-NOT guess past it. Existing v1 calibration rows are `legacy_evidence_unqualified`. \
-`calibrate_predict` and `calibrate_envelope` measure diagnostic aggregates only; they cannot \
-arm `act`.
-- `trust_band: insufficient_evidence` means NO evidence — not medium risk.
-- A `why` closure of `blocked` rests on an unresolved edge: verify that edge before you rely \
-on the path.
+`abstain` means insufficient evidence: do NOT guess past it. v1 calibration rows are \
+`legacy_evidence_unqualified`; `calibrate_predict` and `calibrate_envelope` are diagnostic and \
+they cannot arm `act`. `trust_band: insufficient_evidence` means NO evidence, not medium risk.
 
-## Reception, birth, ingest
-- `reception.match == \"caller_root_mismatch\"`: the bound graph does NOT cover your repo. Do \
-not trust retrieval for it, read `reception.options[]`, and make NO writes — `memorize`, \
-`skeleton_candidate`, `candidate_edit`, the `system_blocks_*` writers and `mission_post` would \
-land in the WRONG brain. Absent `reception` = your root matches.
-- `needs_ingest`: read the packet's `next_move` and say it; never retry a refusal. A repo with \
-NO brain gets one only from the HUMAN's one-time ceremony `m1nd init --birth <repo>`: offer \
-that exact command and stop. No agent-callable bootstrap exists; the honest recovery code is \
-`brain_bootstrap_consumer_not_installed`.
-- `ingest {mode:\"refresh\"}` is the only ingest an agent runs: it re-scans a root this brain \
-already declared, only from exactly that root, and refuses rather than shrink the graph. \
-`replace` and `merge` are policy-disabled.
-- `graph_drift` on `north` or `health`: the graph is behind your checkout. Run its `refresh` \
-call, or read line numbers as of its `indexed` commit.
+## Reception and ingest
+- `reception.match == \"caller_root_mismatch\"`: the graph does NOT cover your repo; read \
+`reception.options[]` and make NO writes.
+- `needs_ingest`: say the packet's `next_move`; never retry a refusal. A repo with NO brain gets \
+one only from the human's `m1nd init --birth <repo>`: offer that exact command and stop \
+(`brain_bootstrap_consumer_not_installed`).
+- `ingest {mode:\"refresh\"}` is the only ingest an agent runs, from the root the brain declared.
+- `graph_drift` on `north` or `health`: the graph is behind your checkout; run its `refresh` call.
 
 ## THE MENU IS A CORE
-`tools/list` shows about fifteen verbs; the rest of the registry stays registered, and \
-dispatch accepts their names subject to authority checks (some hosts only call listed tools). \
-**`help` is the door**: \
-`help(intent)` or `help(stage)` routes you to a verb, `help(tool_name)` returns any verb's \
-full description and parameters, and `help` catalogs the WHOLE registry at every tier. An \
-operator sets `M1ND_TOOL_TIER=full` to list everything. Never conclude a capability is missing \
-before asking `help`.
-Advertised ≠ callable: a verb above the ORDINARY authority floor carries `POLICY-DISABLED \
-(authority floor …)` in its description, in the menu and in `help` alike, and refuses with \
-`generic_action_authority_required`. Read the mark; never spend turns retrying a refusal.
-
-## Bigger work
-- Spawning a subagent: `delegate {agent_id, task}` composes its grounded packet in one \
-read-only call; append its `prompt_markdown` to your brief.
-- Orchestrating a burst (two or more executors, or a big change): open ONE `mission_start` \
-card, post `mission_event` at milestones and `mission_close` at the end. A card is a trail, \
-never a gate.
-- Ratifying a skeleton or landing a receipt is human-only.
+`help` is the door: `help(intent)` routes you, `help(tool_name)` gives any verb's parameters, and \
+`help` catalogs the WHOLE registry at every tier (operators: `M1ND_TOOL_TIER=full`). A verb \
+marked `POLICY-DISABLED (authority floor …)` refuses with `generic_action_authority_required`.
 
 ## The voice
-`north` carries `human_view` (`m1nd-human-view-v0`), a server-mounted card: render its `lines` \
-verbatim in a fenced code block, never re-composed. Do NOT render the card unless m1nd \
-contributed structurally to the mission AND the content is useful to the human NOW; never in \
-consecutive messages; never the same state_sig twice in a session. ASCII fallback is 1:1 \
-(`╷`→`.`, `│`→`|`). Credit m1nd only when it passes the counterfactual test, and never with \
-estimated savings.
+`human_view` (`m1nd-human-view-v0`) rides the full `north` packet: render its `lines` verbatim \
+in a code block. Do NOT render the card unless m1nd contributed structurally to the mission AND \
+it helps the human NOW; never in consecutive messages; never the same state_sig twice in a \
+session. ASCII: `╷`→`.`, `│`→`|`. Credit m1nd only when it passes the counterfactual test.
 
 ## The doctrine, on pull
-`help {topic: \"<id>\"}` opens one card: reception · menu · authority · north · recall · \
-verdicts · capture · promotion · telemetry · delegate · missions · soul · write_surface · \
-voice · verbs.
+`help {topic}`: reception · menu · authority · north · recall · verdicts · capture · \
+promotion · telemetry · delegate · missions · soul · write_surface · voice · verbs.
 ";
 
 /// Stdio MCP framing mode auto-detected on the inbound stream. The matching
@@ -727,105 +693,163 @@ fn annotate_core_menu_discovery(tools: &mut [serde_json::Value], hidden: usize) 
 pub(crate) const CORE_MENU_CARDS: &[(&str, &str)] = &[
     (
         "north",
-        "Call FIRST, before reading or editing. Returns binding trust, focus nodes, prior memory \
-         (real age, author), one next_move, honest_gaps and `code`: the source of the top focus \
-         nodes, so read it before fetching again. An empty or mismatched graph answers \
-         needs_ingest or a reception warning, and no code; a graph behind your checkout adds \
-         graph_drift with its refresh call.",
+        "Call FIRST. Answers a one-word `state` and one `path:lines symbol` line per focus node; \
+         detail:true adds binding, memory, honest_gaps and code. Abnormal states (mismatch, \
+         needs_ingest, graph_drift) answer in full.",
     ),
     (
         "memorize",
-        "Save durable findings to this project's brain as claims with a confidence and \
-         repo-relative `evidence` paths; evidence anchors each claim to code, so it surfaces in \
-         later seek/north and flags itself stale when that code changes. Never call it under \
+        "Save durable findings as claims with confidence and repo-relative `evidence` paths; they \
+         resurface in seek/north and flag stale when that code changes. Never under \
          caller_root_mismatch.",
     ),
     (
         "boot_memory",
-        "Reads the migrated legacy Boot KV projection (get, list, status); durable knowledge goes \
-         through memorize.",
+        "Reads the legacy Boot KV projection (get, list, status); durable knowledge goes through \
+         memorize.",
     ),
     (
         "ingest",
         "POLICY-DISABLED for mode replace (POSITIVE_SOVEREIGN) and merge (SCOPED_GRANT_A2). \
-         mode='refresh' is the one agent ingest: it re-scans a root this brain already declared, \
-         only from exactly that root, and refuses to shrink the graph. No brain yet: offer the \
-         human `m1nd init --birth <repo>` and stop.",
+         mode='refresh' re-scans the root this brain declared. No brain: offer the human \
+         `m1nd init --birth <repo>`.",
     ),
     (
         "seek",
-        "Find code by purpose, not text. Rows carry a trust_envelope and a sufficiency signal: \
-         `sufficient` means stop gathering.",
+        "Find code by purpose. `sufficient` means stop gathering; detail:true adds row \
+         diagnostics.",
     ),
     (
         "search",
-        "Literal, regex or semantic search over graph labels and file contents on disk, with \
-         grep-style options.",
+        "Literal, regex or semantic search over labels and files on disk. Lean rows by default; \
+         detail:true adds context lines and diagnostics.",
     ),
-    (
-        "view",
-        "Read a file with line numbers (0-based offset); auto-ingests it if the graph lacks it.",
-    ),
+    ("view", "Read a file with line numbers (0-based offset)."),
     (
         "surgical_context",
-        "Edit context for one file: contents, symbols and graph neighbours (callers, callees, \
-         tests).",
+        "Edit context for one file: contents, symbols, callers, callees, tests.",
     ),
     (
         "impact",
-        "Blast radius of changing a node. Before you call a change done, check its co_change: \
-         files that historically change with the target.",
+        "Blast radius of changing a node; read its co_change before you call a change done.",
     ),
     (
         "health",
-        "Server health, graph counts and the tool_surface_contract; graph_drift when the graph \
-         is behind your checkout.",
+        "Server health and graph counts; graph_drift when the graph is behind your checkout.",
     ),
     (
         "trust_selftest",
-        "One-call verdict on host binding, graph and recovery trust.",
+        "One-call verdict on binding, graph and recovery trust.",
     ),
     (
         "session_handshake",
-        "Cheap trust handshake before relying on retrieval; can also declare your presence \
-         (advisory, never a gate).",
+        "Cheap trust handshake; can declare your presence (advisory).",
     ),
     (
         "recovery_playbook",
-        "Recovery steps for a degraded binding, an empty graph or a stale-looking session.",
+        "Recovery steps for a degraded binding or an empty graph.",
     ),
     (
         "doctor",
-        "Diagnose graph, runtime, session and stale-binding symptoms.",
+        "Diagnose graph, runtime and stale-binding symptoms.",
     ),
     (
         "help",
-        "The door to every verb and to the doctrine behind the instructions: help(intent) or \
-         help(stage) routes you, help(tool_name) returns a verb's full description and \
-         parameters, help(topic) opens a doctrine card.",
+        "The door: help(intent) routes you, help(tool_name) serves a verb's full schema, \
+         help(topic) a doctrine card.",
     ),
+];
+
+/// The optional parameters each core verb's menu schema names: the ones an
+/// agent calls it with. Required parameters are always named; so is every
+/// parameter of a schema that closes `additionalProperties`, because a host
+/// would refuse a call that used an unnamed one. The rest stay in the registry,
+/// accepted on every call, and `help(tool_name)` serves each with its prose
+/// and default. Measured on 2026-11-20, the full property lists were 7,446 of
+/// the 9,955 characters the default `tools/list` cost every session.
+pub(crate) const CORE_MENU_PARAMS: &[(&str, &[&str])] = &[
+    ("north", &["top_k", "scope", "detail", "code"]),
+    ("memorize", &[]),
+    ("boot_memory", &["key"]),
+    ("ingest", &["mode"]),
+    ("seek", &["top_k", "scope", "detail", "token_budget"]),
+    (
+        "search",
+        &[
+            "mode",
+            "scope",
+            "top_k",
+            "filename_pattern",
+            "context_lines",
+            "detail",
+        ],
+    ),
+    ("view", &["offset", "limit"]),
+    ("surgical_context", &["symbol"]),
+    ("impact", &["direction"]),
+    ("health", &[]),
+    ("trust_selftest", &["scope"]),
+    ("session_handshake", &["scope", "intent", "working_set"]),
+    ("recovery_playbook", &["error_text"]),
+    ("doctor", &["error_text"]),
+    ("help", &["tool_name", "intent", "stage", "topic"]),
 ];
 
 /// One registry schema in its menu form: the card for a description, with the
 /// derived POLICY-DISABLED mark when a branch sits above the generic floor, and
-/// an input schema reduced to what a host validates a call against. A verb with
-/// no card passes through untouched.
+/// an input schema reduced to what a host validates a call against: the
+/// required parameters and the [`CORE_MENU_PARAMS`] ones, without prose. A verb
+/// with no card passes through untouched.
 fn core_menu_card_schema(mut tool: serde_json::Value) -> serde_json::Value {
     let Some(name) = tool.get("name").and_then(serde_json::Value::as_str) else {
         return tool;
     };
-    let Some((_, card)) = CORE_MENU_CARDS.iter().find(|(verb, _)| *verb == name) else {
+    let Some(&(verb, card)) = CORE_MENU_CARDS.iter().find(|(verb, _)| *verb == name) else {
         return tool;
     };
-    let description = match menu_floor_gate_prefix(name) {
+    let description = match menu_floor_gate_prefix(verb) {
         Some(prefix) if !card.contains(FLOOR_GATE_MARKER) => format!("{prefix}{card}"),
         _ => (*card).to_string(),
     };
     tool["description"] = serde_json::Value::String(description);
     if let Some(schema) = tool.get_mut("inputSchema") {
         strip_schema_prose(schema);
+        keep_menu_params(verb, schema);
     }
     tool
+}
+
+/// Drop the optional top-level properties a verb's menu does not name (see
+/// [`CORE_MENU_PARAMS`]). A schema that closes `additionalProperties` keeps
+/// every property.
+fn keep_menu_params(name: &str, schema: &mut serde_json::Value) {
+    if schema.get("additionalProperties") == Some(&serde_json::Value::Bool(false)) {
+        return;
+    }
+    let named: &[&str] = CORE_MENU_PARAMS
+        .iter()
+        .find(|(verb, _)| *verb == name)
+        .map(|(_, params)| *params)
+        .unwrap_or(&[]);
+    let required: Vec<String> = schema
+        .get("required")
+        .and_then(serde_json::Value::as_array)
+        .map(|required| {
+            required
+                .iter()
+                .filter_map(serde_json::Value::as_str)
+                .map(str::to_string)
+                .collect()
+        })
+        .unwrap_or_default();
+    if let Some(properties) = schema
+        .get_mut("properties")
+        .and_then(serde_json::Value::as_object_mut)
+    {
+        properties.retain(|param, _| {
+            required.iter().any(|r| r == param) || named.contains(&param.as_str())
+        });
+    }
 }
 
 /// Drop `description` and `default` from a schema and from every schema nested
@@ -882,7 +906,7 @@ fn all_tool_schemas_inner() -> serde_json::Value {
             },
             {
                 "name": "north",
-                "description": "Pre-orient in ONE call so you never start cold — and get the CODE, not just its address. north returns the honest north packet PLUS `code`: the actual source of its top focus nodes (up to 3 files, ~2,000 chars by default, `code_budget_chars` to widen, `code: false` to switch off), composed from surgical_context (the symbol's own lines) and batch_view (the file head when a node names no symbol). Every slice declares total_lines / lines_returned / truncated, so what was cut is stated, never silent — you do NOT need a second round-trip to read what north just named. The rest of the packet is unchanged: binding trust (trust_mode + fingerprint + the repair when degraded), task context (focus nodes + PageRank anchors from orient), durable cross-session memory (each claim with its real age + author, absent when unknown — never faked to 'now'), an answer-free sufficiency signal, one suggested next_move, and honest_gaps (what m1nd does NOT yet know). When missions await the human landing it also rings the landing_bell (a merge_wait count + one honest line, absent when none do) so an opening agent can nudge the owner to the tray. When the graph was built at another commit than your checkout it carries graph_drift (indexed vs head commit, commits behind, files changed, and the exact refresh call) — absent when the graph is at HEAD. It also carries human_view (m1nd-human-view-v0): the m1nd voice — a server-mounted ≤4-line card (state, state_sig, lines) the agent renders for the human under the negative-default cadence in the instructions (full card law: help topic `voice`), verbatim, never re-composed. On an empty/unbound graph it honestly returns needs_ingest + the repair, not a fabricated orientation — and no code: the payload is ABSENT wherever the packet says the graph cannot answer for your repo (needs_ingest, empty graph, caller_root_mismatch, no project brain). One round-trip instead of trust_selftest → orient → boot_memory → focus → surgical_context. Read-only safe.",
+                "description": "Pre-orient in ONE call so you never start cold. The default answer is lean, about 1 KB: `state`, one word (`sufficient`, `gathering` or `saturated` on a healthy graph: the sufficiency verdict lifted from focus; `needs_ingest`, `mismatch`, `no_brain` or `degraded` otherwise), and `focus`, one `path:lines symbol` line per focus node in activation order (`lines` is `start-end` when the extractor recorded a span, `start` when it recorded only the first line; a file node reads `(file)`), plus the first memory rows, the landing_bell and graph_drift, each only when present. `detail: true` returns the full packet: binding trust (trust_mode + fingerprint + the repair when degraded), task context (focus nodes + PageRank anchors from orient), durable cross-session memory (each claim with its real age + author, absent when unknown — never faked to 'now'), the sufficiency signal, one suggested next_move, honest_gaps (what m1nd does NOT yet know), and `code`: the source of the top focus nodes (up to 3 files, ~2,000 chars by default, `code_budget_chars` to widen), composed from surgical_context (the symbol's own lines) and view (the node's own lines as the graph recorded them). A slice is always a symbol's own lines, never a file head; every slice declares total_lines / lines_returned / truncated, so what was cut is stated, never silent. An abnormal answer (caller_root_mismatch, no project brain, needs_ingest, a binding that is not full trust, graph_drift, or another mutating session on the same brain) returns the full packet without being asked. When missions await the human landing it also rings the landing_bell (a merge_wait count + one honest line, absent when none do) so an opening agent can nudge the owner to the tray. When the graph was built at another commit than your checkout it carries graph_drift (indexed vs head commit, commits behind, files changed, and the exact refresh call) — absent when the graph is at HEAD. The full packet also carries human_view (m1nd-human-view-v0): the m1nd voice — a server-mounted ≤4-line card (state, state_sig, lines) the agent renders for the human under the negative-default cadence in the instructions (full card law: help topic `voice`), verbatim, never re-composed. On an empty/unbound graph it honestly returns needs_ingest + the repair, not a fabricated orientation — and no code: the payload is ABSENT wherever the packet says the graph cannot answer for your repo (needs_ingest, empty graph, caller_root_mismatch, no project brain). One round-trip instead of trust_selftest → orient → boot_memory → focus → surgical_context. Read-only safe.",
                 "inputSchema": {
                     "type": "object",
                     "properties": {
@@ -890,8 +914,9 @@ fn all_tool_schemas_inner() -> serde_json::Value {
                         "task": { "type": "string", "description": "Free-form description of the task you are about to start. The graph spread-activates on this text to find your starting context." },
                         "top_k": { "type": "integer", "default": 8, "description": "How many focus nodes to return (ranked by activation from the task)" },
                         "scope": { "type": "string", "description": "Optional scope hint to bound orientation and trust binding" },
-                        "code": { "type": "boolean", "default": true, "description": "Carry the source of the top focus nodes in the packet. ON by default — the second round-trip to fetch what north named is the one agents do not make. Set false for the pre-code, orientation-only packet." },
-                        "code_budget_chars": { "type": "integer", "default": 2000, "description": "Character budget for the SOURCE in the code payload (clamped 200..20000). Spent in activation order over at most 3 distinct files; what it cuts is declared (`truncated`, `files_total` / `files_returned` / `files_omitted`, and per-slice `total_lines` vs `lines_returned`). Raise it when you want more of each file in the first call; the whole file is still one surgical_context / batch_view away." },
+                        "detail": { "type": "boolean", "default": false, "description": "Return the full packet (binding, context with anchors and coverage, memory, sufficiency, next_move, honest_gaps, non_claims, human_view, map and the code payload) instead of the lean answer. The focus lines and the state word are the same either way." },
+                        "code": { "type": "boolean", "description": "Carry the source of the top focus nodes in the packet. Defaults to `detail`; set true for code with the lean answer, false for the full packet without code." },
+                        "code_budget_chars": { "type": "integer", "default": 2000, "description": "Character budget for the SOURCE in the code payload (clamped 200..20000). Spent in activation order over at most 3 distinct files; what it cuts is declared (`truncated`, `files_total` / `files_returned` / `files_omitted`, and per-slice `total_lines` vs `lines_returned`). Raise it when you want more of each symbol in the first call; the rest is still one surgical_context / view away." },
                         "tier": { "type": "string", "enum": ["project", "medulla", "project+medulla", "all-brains"], "description": "Memory-tier for the packet's recall beat (pull-not-push). Default project+medulla: this brain's own memory + the shared medulla (promoted/doctrine). 'all-brains' fans out over EVERY hosted brain, each memory row labeled origin_brain — the explicit cross-project inspection, never ambient. Another brain's claim reaches your default beat only if it was promoted to the medulla." }
                     },
                     "required": ["agent_id", "task"]
@@ -2325,7 +2350,7 @@ fn all_tool_schemas_inner() -> serde_json::Value {
             // =================================================================
             {
                 "name": "search",
-                "description": "Unified code search: literal, regex (with multiline), or semantic. Searches graph node labels AND file contents on disk. Supports invert (grep -v), count-only (grep -c), multiline regex (rg -U), and filename pattern filtering (grep --include). v0.5.0: regex mode now searches file contents (not just node IDs).",
+                "description": "Unified code search: literal, regex (with multiline), or semantic. Searches graph node labels AND file contents on disk. Supports invert (grep -v), count-only (grep -c), multiline regex (rg -U), and filename pattern filtering (grep --include). v0.5.0: regex mode now searches file contents (not just node IDs). The default answer is lean: rows carry node_id, type, file_path, line_number and matched_line, kept best-first under about 4 KB with any cut declared (truncated, rows_omitted, inline_summary); detail: true returns context lines, graph_linked and the next-step diagnostics.",
                 "inputSchema": {
                     "type": "object",
                     "properties": {
@@ -2339,7 +2364,7 @@ fn all_tool_schemas_inner() -> serde_json::Value {
                         },
                         "scope": { "type": "string", "description": "File path prefix filter" },
                         "top_k": { "type": "integer", "default": 50, "description": "Max results (1-500)" },
-                        "context_lines": { "type": "integer", "default": 2, "description": "Lines of context before/after match (0-10)" },
+                        "context_lines": { "type": "integer", "description": "Lines of context before/after match (0-10). Default 0, or 2 with detail: true" },
                         "case_sensitive": { "type": "boolean", "default": false, "description": "Case-sensitive matching" },
                         "invert": { "type": "boolean", "default": false, "description": "Return lines that DON'T match (grep -v)" },
                         "count_only": { "type": "boolean", "default": false, "description": "Return just the count, no results (grep -c)" },
@@ -2347,7 +2372,8 @@ fn all_tool_schemas_inner() -> serde_json::Value {
                         "auto_ingest": { "type": "boolean", "default": false, "description": "Auto-ingest exactly one resolved scope path outside current ingest roots before searching; ambiguous scopes return an error that lists candidate paths in detail" },
                         "filename_pattern": { "type": "string", "description": "Glob pattern to filter filenames (e.g. '*.rs', 'test_*.py')" },
                         "max_output_chars": { "type": "integer", "description": "Optional cap for total returned characters across serialized matches" },
-                        "token_budget": { "type": "integer", "minimum": 1, "description": "Optional approx context-token budget. m1nd keeps the highest-ranked rows that fit, drops the rest, and returns a 'budget' block (estimate = chars/4, not exact tokenization; ignored when count_only)" }
+                        "token_budget": { "type": "integer", "minimum": 1, "description": "Optional approx context-token budget. m1nd keeps the highest-ranked rows that fit, drops the rest, and returns a 'budget' block (estimate = chars/4, not exact tokenization; ignored when count_only)" },
+                        "detail": { "type": "boolean", "default": false, "description": "Return the full answer: rows with context lines (2 unless context_lines is set), graph_linked and label, plus the next-step rationale and the agent_runtime_contract. Default false: lean rows (node_id, type, file_path, line_number, matched_line) kept best-first under about 4 KB, with any cut declared by truncated, rows_omitted and inline_summary. The ranking is the same either way." }
                     },
                     "required": ["agent_id", "query"]
                 }
@@ -5164,14 +5190,26 @@ fn handle_orient(
         .take(top_k)
         .map(|a| {
             let path = a.provenance.as_ref().and_then(|p| p.source_path.clone());
-            serde_json::json!({
+            let mut node = serde_json::json!({
                 "node_id": a.node_id,
                 "label": a.label,
                 "path": path,
                 "pagerank": a.pagerank,
                 "activation": a.activation,
                 "kind": a.node_type,
-            })
+            });
+            // The node's own lines, when the extractor recorded them: `north`
+            // addresses each focus node as `path:lines symbol` and slices its code
+            // from them. Absent, never invented, when unknown.
+            if let Some(provenance) = a.provenance.as_ref() {
+                if let Some(start) = provenance.line_start {
+                    node["line_start"] = serde_json::json!(start);
+                }
+                if let Some(end) = provenance.line_end {
+                    node["line_end"] = serde_json::json!(end);
+                }
+            }
+            node
         })
         .collect();
     let top_focus_id = focus_ranked.first().map(|a| a.node_id.clone());
@@ -5306,9 +5344,10 @@ const NORTH_CODE_BUDGET_MAX: usize = 20_000;
 /// bounds the composition to three file reads. One would be too few — the
 /// second hop the measurement says never happens is usually the SECOND file.
 const NORTH_CODE_MAX_FILES: usize = 3;
-/// Lines per file-head slice. Deliberately the SAME cap `surgical_context`'s
-/// excerpt builder already applies to a symbol, so a file-head slice and a
-/// symbol slice cost the caller the same and the budget arithmetic is uniform.
+/// Lines per code slice. Deliberately the SAME cap `surgical_context`'s excerpt
+/// builder already applies to a symbol, so a slice cut from the graph's own
+/// line span and a `surgical_context` slice cost the caller the same and the
+/// budget arithmetic is uniform.
 const NORTH_CODE_MAX_LINES_PER_FILE: usize = 20;
 
 /// Compose the CODE of north's top focus nodes out of the verbs that already
@@ -5321,14 +5360,20 @@ const NORTH_CODE_MAX_LINES_PER_FILE: usize = 20;
 ///
 /// PURE COMPOSITION, no third slicer: every byte here came verbatim out of
 /// `surgical_context` (the symbol's own source, addressed at its real lines) or
-/// `batch_view` (the file head, for a node that names no symbol). All this
-/// function decides is WHICH targets to ask for, and it declares what the
+/// `view` (the node's own lines as the graph recorded them, for a symbol
+/// `surgical_context` does not find — a Go method, a document section). All
+/// this function decides is WHICH targets to ask for, and it declares what the
 /// budget cut. Both handlers are read-only here — `auto_ingest` is off, so the
 /// composition cannot mutate the graph north is describing.
 ///
+/// A slice is always a symbol's own lines, never a file head: a file whose only
+/// focus node is the file itself gets no slice and is counted in
+/// `files_omitted`. Measured on a Go repository (2026-11-20), the file-head
+/// fallback served a copyright header for the method the task named.
+///
 /// The unit is the FILE, not the focus node: focus nodes cluster hard (measured
 /// live: 8 focus nodes over 4 files, three of them the same file), and the file
-/// is what the agent actually opens. The highest-activation node in each file
+/// is what the agent actually opens. The highest-activation symbol in each file
 /// picks that file's slice.
 ///
 /// Returns `None` when nothing could be served — absent, never an empty
@@ -5339,15 +5384,15 @@ fn compose_north_code(
     focus_nodes: &[serde_json::Value],
     budget_chars: usize,
 ) -> Option<serde_json::Value> {
-    // One target per distinct file, in activation order — the first focus node
-    // to name a file is that file's highest-activation node, so it names the
-    // slice.
+    // Every distinct file the focus nodes name, in activation order, with the
+    // first focus node in it that names a symbol (not the file itself).
     struct Target {
         path: String,
         label: String,
-        symbol_bearing: bool,
+        line_start: Option<u32>,
+        line_end: Option<u32>,
     }
-    let mut targets: Vec<Target> = Vec::new();
+    let mut files: Vec<(String, Option<Target>)> = Vec::new();
     for node in focus_nodes {
         let Some(path) = node
             .get("path")
@@ -5359,22 +5404,34 @@ fn compose_north_code(
             // rides in `memory` — it gets no code, deliberately.
             continue;
         };
-        if targets.iter().any(|t| t.path == path) {
+        let index = match files.iter().position(|(p, _)| p == path) {
+            Some(index) => index,
+            None => {
+                files.push((path.to_string(), None));
+                files.len() - 1
+            }
+        };
+        if files[index].1.is_some() || node.get("kind").and_then(|k| k.as_str()) == Some("File") {
             continue;
         }
-        targets.push(Target {
+        let line = |key: &str| {
+            node.get(key)
+                .and_then(|v| v.as_u64())
+                .and_then(|v| u32::try_from(v).ok())
+                .filter(|&v| v > 0)
+        };
+        files[index].1 = Some(Target {
             path: path.to_string(),
             label: node
                 .get("label")
                 .and_then(|l| l.as_str())
                 .unwrap_or_default()
                 .to_string(),
-            // A `File` node definitionally names no symbol; anything else does,
-            // and falls through to the file head when its language yields none.
-            symbol_bearing: node.get("kind").and_then(|k| k.as_str()) != Some("File"),
+            line_start: line("line_start"),
+            line_end: line("line_end"),
         });
     }
-    let files_total = targets.len();
+    let files_total = files.len();
     if files_total == 0 {
         return None;
     }
@@ -5390,104 +5447,105 @@ fn compose_north_code(
         content: String,
         truncated: bool,
     }
-    let mut composed: Vec<Option<Slice>> = Vec::new();
-    let mut head_wanted: Vec<usize> = Vec::new();
-
-    // Pass 1 — `surgical_context` for every symbol-bearing target.
-    for (index, target) in targets.iter().take(NORTH_CODE_MAX_FILES).enumerate() {
-        let focused = if target.symbol_bearing {
-            crate::surgical_handlers::handle_surgical_context(
-                state,
-                crate::protocol::surgical::SurgicalContextInput {
-                    file_path: target.path.clone(),
-                    agent_id: agent_id.to_string(),
-                    symbol: Some(target.label.clone()),
-                    radius: 1,
-                    include_tests: false,
-                },
-            )
-            .ok()
-            .and_then(|out| {
-                out.focused_symbol
-                    .map(|symbol| (symbol, out.line_count as usize))
-            })
-        } else {
-            None
-        };
-        match focused {
-            Some((symbol, line_count)) => {
-                let content = symbol.excerpt.unwrap_or_default();
-                let span = (symbol.line_end.saturating_sub(symbol.line_start) + 1) as usize;
-                let truncated = content.lines().count() < span;
-                composed.push(Some(Slice {
-                    label: target.label.clone(),
-                    file_path: target.path.clone(),
-                    source: "surgical_context",
-                    line_start: symbol.line_start,
-                    line_end: symbol.line_end,
-                    total_lines: line_count,
-                    content,
-                    truncated,
-                }));
-            }
-            None => {
-                // No symbol to focus (a File node, an unsupported language, a
-                // name the extractor cannot see) — the file head answers.
-                composed.push(None);
-                head_wanted.push(index);
-            }
-        }
-    }
-
-    // Pass 2 — ONE `batch_view` for every fall-through, which is what that verb
-    // is for: many files, one call, honest per-file counters.
-    if !head_wanted.is_empty() {
-        let files: Vec<String> = head_wanted
-            .iter()
-            .map(|&index| targets[index].path.clone())
-            .collect();
-        if let Ok(batch) = crate::surgical_handlers::handle_batch_view(
+    let mut composed: Vec<Slice> = Vec::new();
+    for target in files
+        .iter()
+        .filter_map(|(_, target)| target.as_ref())
+        .take(NORTH_CODE_MAX_FILES)
+    {
+        // `surgical_context` first: it finds the symbol by name and closes its
+        // span on the matching brace. Its answer counts only when it lands on
+        // the node's own first line (a name can repeat inside one file).
+        let focused = crate::surgical_handlers::handle_surgical_context(
             state,
-            crate::protocol::surgical::BatchViewInput {
+            crate::protocol::surgical::SurgicalContextInput {
+                file_path: target.path.clone(),
                 agent_id: agent_id.to_string(),
-                files,
-                max_lines_per_file: NORTH_CODE_MAX_LINES_PER_FILE,
-                summary_mode: false,
+                symbol: Some(target.label.clone()),
+                radius: 1,
+                include_tests: false,
+            },
+        )
+        .ok()
+        .and_then(|out| {
+            out.focused_symbol
+                .map(|symbol| (symbol, out.line_count as usize))
+        })
+        .filter(|(symbol, _)| {
+            target
+                .line_start
+                .is_none_or(|start| start == symbol.line_start)
+        });
+        if let Some((symbol, line_count)) = focused {
+            let content = symbol.excerpt.unwrap_or_default();
+            let span = (symbol.line_end.saturating_sub(symbol.line_start) + 1) as usize;
+            let truncated = content.lines().count() < span;
+            composed.push(Slice {
+                label: target.label.clone(),
+                file_path: target.path.clone(),
+                source: "surgical_context",
+                line_start: symbol.line_start,
+                line_end: symbol.line_end,
+                total_lines: line_count,
+                content,
+                truncated,
+            });
+            continue;
+        }
+        // Otherwise the node's own lines as the graph recorded them, through
+        // `view`. A recorded span is served up to the line cap; a node whose
+        // extractor recorded only its first line is served from that line.
+        let Some(start) = target.line_start else {
+            continue;
+        };
+        let span = target
+            .line_end
+            .filter(|&end| end > start)
+            .map(|end| (end - start + 1) as usize);
+        let limit = span.map_or(NORTH_CODE_MAX_LINES_PER_FILE, |span| {
+            span.min(NORTH_CODE_MAX_LINES_PER_FILE)
+        });
+        let Ok(view) = crate::surgical_handlers::handle_view(
+            state,
+            crate::protocol::surgical::ViewInput {
+                file_path: target.path.clone(),
+                agent_id: agent_id.to_string(),
+                offset: Some(start as usize - 1),
+                limit: Some(limit),
                 auto_ingest: false,
                 max_output_chars: None,
             },
-        ) {
-            for &index in &head_wanted {
-                let target = &targets[index];
-                let Some(entry) = batch
-                    .entries
-                    .iter()
-                    .find(|entry| entry.file_path.ends_with(&target.path))
-                else {
-                    continue;
-                };
-                composed[index] = Some(Slice {
-                    label: target.label.clone(),
-                    file_path: target.path.clone(),
-                    source: "batch_view",
-                    line_start: 1,
-                    line_end: entry.lines_returned.max(1) as u32,
-                    total_lines: entry.total_lines,
-                    content: entry.content.clone(),
-                    truncated: entry.truncated,
-                });
-            }
+        ) else {
+            continue;
+        };
+        if view.lines_returned == 0 {
+            continue;
         }
+        // An unrecorded end is unknown, so a full-cap slice says it may go on.
+        let truncated = match span {
+            Some(span) => span > view.lines_returned,
+            None => view.lines_returned >= NORTH_CODE_MAX_LINES_PER_FILE,
+        };
+        composed.push(Slice {
+            label: target.label.clone(),
+            file_path: target.path.clone(),
+            source: "view",
+            line_start: start,
+            line_end: start + view.lines_returned as u32 - 1,
+            total_lines: view.total_lines,
+            content: view.content,
+            truncated,
+        });
     }
 
-    // Pass 3 — spend the budget in rank order and DECLARE the cut. A silent
+    // Spend the budget in rank order and DECLARE the cut. A silent
     // truncation is a lie; the vocabulary mirrors the binding fingerprint's
     // head-truncated `ingest_roots` (`*_total` / `*_omitted` / `*_truncated` /
     // the surface that serves the whole thing).
     let mut slices: Vec<serde_json::Value> = Vec::new();
     let mut used = 0usize;
     let mut any_truncated = false;
-    for slice in composed.into_iter().flatten() {
+    for slice in composed {
         let remaining = budget_chars.saturating_sub(used);
         if remaining == 0 {
             break;
@@ -5533,7 +5591,7 @@ fn compose_north_code(
         payload.insert(
             "full_surface".into(),
             serde_json::json!(
-                "surgical_context(file_path, symbol) or batch_view(files) serves the whole file; this block carries the activation-ranked head only"
+                "surgical_context(file_path, symbol) or view(file_path, offset, limit) serves the rest; this block carries the top symbol of each of the first files, in activation order"
             ),
         );
     }
@@ -5581,12 +5639,21 @@ fn handle_north(
         .get("scope")
         .and_then(|v| v.as_str())
         .map(|s| s.to_string());
-    // The code payload is ON by default. The measurement that ordered it is
-    // exactly why: nobody opts in to what they do not know exists, and the verbs
-    // that already closed this hop sat at 1 call in six weeks. A knob nobody
-    // turns changes nothing — so the knob here is the OFF switch, for the caller
-    // who has measured that they do not want the bytes.
-    let code_enabled = params.get("code").and_then(|v| v.as_bool()).unwrap_or(true);
+    // The default answer is the lean one: each focus node as `path:lines
+    // symbol` plus one state word (see `north_lean_packet`). Measured in a cold
+    // agent experiment (2026-11-20), the full packet was 8-11 KB, an agent
+    // re-read it on every turn, and the part it acted on was the file list.
+    // `detail: true` returns the full packet; an abnormal state returns it
+    // without being asked.
+    let detail = params
+        .get("detail")
+        .and_then(|v| v.as_bool())
+        .unwrap_or(false);
+    // The code payload rides with `detail`; `code` overrides either way.
+    let code_enabled = params
+        .get("code")
+        .and_then(|v| v.as_bool())
+        .unwrap_or(detail);
     let code_budget_chars = params
         .get("code_budget_chars")
         .and_then(|v| v.as_u64())
@@ -5644,6 +5711,7 @@ fn handle_north(
                     });
                 let mut packet = serde_json::json!({
                     "schema": "m1nd-north-packet-v0",
+                    "state": NORTH_STATE_MISMATCH,
                     "task": task,
                     "reception": reception,
                     "needs": null,
@@ -6179,11 +6247,13 @@ fn handle_north(
     // its own here. Advisory, never blocking (the same posture as reception).
     // Fail-open + read-only: an unreadable registry yields no line, never breaks
     // north; presence is witness tissue that verifies nothing.
+    let mut collision = false;
     {
         let (roster, _) = state.presence_roster();
         let now = crate::util::now_ms();
         let collisions = crate::presence::collisions_for_agent(&roster, &agent_id, now);
         if !collisions.is_empty() {
+            collision = true;
             let others: Vec<String> = collisions
                 .iter()
                 .map(|c| format!("{} ({})", c.other_agent, c.overlap.join(", ")))
@@ -6364,12 +6434,163 @@ fn handle_north(
     }
     // The drift note rides ONLY when the graph is behind (or apart from) the
     // caller's checkout — absent, not null, at HEAD.
+    let drifted = graph_drift.is_some();
     if let Some(note) = graph_drift {
         if let Some(obj) = packet.as_object_mut() {
             obj.insert("graph_drift".to_string(), note);
         }
     }
-    Ok(packet)
+
+    // The one state word and the focus lines ride on every packet, so the lean
+    // answer is a strict projection of the full one.
+    let state_word = north_state_word(
+        reception_mismatch,
+        brainless_caller,
+        needs_ingest || !graph_populated,
+        binding_ok,
+        &sufficiency,
+    );
+    let focus_lines = north_focus_lines(&context);
+    if let Some(obj) = packet.as_object_mut() {
+        obj.insert("state".to_string(), serde_json::json!(state_word));
+        obj.insert("focus".to_string(), serde_json::json!(focus_lines));
+    }
+    // An abnormal packet answers in full without being asked: the diagnostics
+    // ARE the answer when the graph is foreign, empty, behind the checkout or
+    // not fully trusted, or when another hand is writing the same brain.
+    let abnormal = reception_mismatch
+        || brainless_caller
+        || needs_ingest
+        || !graph_populated
+        || !binding_ok
+        || drifted
+        || collision;
+    if detail || abnormal {
+        return Ok(packet);
+    }
+    Ok(north_lean_packet(packet))
+}
+
+/// The one-word state of a north answer.
+///
+/// Abnormal states name themselves; a healthy graph answers with the
+/// `sufficiency` verdict lifted from `focus` (`sufficient` means the focus set
+/// holds the relevant context, `gathering` that relevant context did not fit,
+/// `saturated` that the task is weakly represented in this graph).
+fn north_state_word(
+    reception_mismatch: bool,
+    brainless_caller: bool,
+    needs_ingest: bool,
+    binding_ok: bool,
+    sufficiency: &serde_json::Value,
+) -> &'static str {
+    if reception_mismatch {
+        NORTH_STATE_MISMATCH
+    } else if brainless_caller {
+        "no_brain"
+    } else if needs_ingest {
+        "needs_ingest"
+    } else if !binding_ok {
+        "degraded"
+    } else {
+        match sufficiency.get("state").and_then(|s| s.as_str()) {
+            Some("sufficient") => "sufficient",
+            Some("gathering") => "gathering",
+            Some("saturated") => "saturated",
+            _ => "unknown",
+        }
+    }
+}
+
+/// The state word of a `caller_root_mismatch` answer.
+const NORTH_STATE_MISMATCH: &str = "mismatch";
+
+/// Longest symbol name a focus line carries before it is cut with `…`. Long
+/// labels are document headings; a code symbol is far shorter.
+const NORTH_FOCUS_LABEL_MAX_CHARS: usize = 80;
+
+/// Memory rows the lean answer carries. The full packet carries them all.
+const NORTH_LEAN_MEMORY_ROWS: usize = 3;
+
+/// Each focus node with a file as one `path:lines symbol` line, in focus
+/// order. `lines` is `start-end` when the extractor recorded a span, `start`
+/// when it recorded only the first line, and absent when it recorded neither;
+/// a file node reads `(file)`. Nodes with no file (a memory claim) are left
+/// out: their content rides in `memory`.
+fn north_focus_lines(context: &serde_json::Value) -> Vec<String> {
+    context
+        .get("focus_nodes")
+        .and_then(|nodes| nodes.as_array())
+        .map(|nodes| nodes.iter().filter_map(north_focus_line).collect())
+        .unwrap_or_default()
+}
+
+fn north_focus_line(node: &serde_json::Value) -> Option<String> {
+    let path = node
+        .get("path")
+        .and_then(|p| p.as_str())
+        .filter(|p| !p.is_empty())?;
+    let start = node.get("line_start").and_then(|v| v.as_u64());
+    let end = node.get("line_end").and_then(|v| v.as_u64());
+    let lines = match (start, end) {
+        (Some(start), Some(end)) if end > start => format!(":{start}-{end}"),
+        (Some(start), _) => format!(":{start}"),
+        _ => String::new(),
+    };
+    let symbol = if node.get("kind").and_then(|k| k.as_str()) == Some("File") {
+        "(file)".to_string()
+    } else {
+        let label = node
+            .get("label")
+            .and_then(|l| l.as_str())
+            .unwrap_or_default();
+        match label.char_indices().nth(NORTH_FOCUS_LABEL_MAX_CHARS) {
+            Some((at, _)) => format!("{}…", &label[..at]),
+            None => label.to_string(),
+        }
+    };
+    Some(format!("{path}{lines} {symbol}"))
+}
+
+/// The default north answer: the schema, the state word, the focus lines, and
+/// only what a healthy packet carries that an agent acts on — the first memory
+/// rows and the landing bell, each only when present. Everything else in the
+/// full packet (binding, anchors, coverage, sufficiency, next_move,
+/// honest_gaps, non_claims, human_view, map, code) is served by
+/// `detail: true`. Built from the full packet so the two can never disagree.
+fn north_lean_packet(packet: serde_json::Value) -> serde_json::Value {
+    let mut lean = serde_json::Map::new();
+    for key in ["schema", "state", "focus"] {
+        if let Some(value) = packet.get(key) {
+            lean.insert(key.to_string(), value.clone());
+        }
+    }
+    if let Some(memory) = packet
+        .get("memory")
+        .and_then(|m| m.as_array())
+        .filter(|m| !m.is_empty())
+    {
+        lean.insert(
+            "memory".to_string(),
+            serde_json::Value::Array(
+                memory
+                    .iter()
+                    .take(NORTH_LEAN_MEMORY_ROWS)
+                    .cloned()
+                    .collect(),
+            ),
+        );
+    }
+    // Present only when they say something: a code payload asked for with
+    // `code: true`, missions awaiting the human landing, a graph behind the
+    // checkout. A reception block rides only on a mismatch, which never
+    // reaches the lean answer.
+    for key in ["code", "landing_bell", "graph_drift", "reception"] {
+        if let Some(value) = packet.get(key).filter(|v| !v.is_null()) {
+            lean.insert(key.to_string(), value.clone());
+        }
+    }
+    serde_json::Value::Object(lean)
 }
 
 /// Thin wrapper so the delegation layer can reuse `orient`'s composition
@@ -7709,8 +7930,14 @@ fn dispatch_core_tool(
         "search" => {
             let input: layers::SearchInput =
                 serde_json::from_value(params.clone()).map_err(M1ndError::Serde)?;
+            let detail = input.detail;
+            let pack = input.max_output_chars.is_none() && input.token_budget.is_none();
             let output = search_handlers::handle_search(state, input)?;
-            serde_json::to_value(output).map_err(M1ndError::Serde)
+            let mut payload = serde_json::to_value(output).map_err(M1ndError::Serde)?;
+            if !detail {
+                search_handlers::lean_search_payload(&mut payload, pack);
+            }
+            Ok(payload)
         }
         "scan_all" => {
             let input: layers::ScanAllInput =
@@ -14172,13 +14399,14 @@ mod tests {
                 filename_pattern: None,
                 top_k: 5,
                 case_sensitive: false,
-                context_lines: 0,
+                context_lines: Some(0),
                 invert: false,
                 count_only: false,
                 multiline: false,
                 auto_ingest: false,
                 max_output_chars: None,
                 token_budget: None,
+                detail: false,
             },
         )
         .expect("search after background tick");
@@ -14973,6 +15201,14 @@ mod tests {
             super::strip_schema_prose(&mut copy);
             copy
         }
+        let named_params: BTreeSet<&str> = super::CORE_MENU_PARAMS
+            .iter()
+            .map(|(name, _)| *name)
+            .collect();
+        assert_eq!(
+            named_params, cards,
+            "every core verb names its menu parameters exactly once"
+        );
 
         for tier in ["core", "investigate"] {
             for tool in tool_schemas_for_tier(tier)["tools"]
@@ -14996,10 +15232,59 @@ mod tests {
                     prose_free(&tool["inputSchema"]),
                     "{name}'s menu schema must carry no description or default"
                 );
+                // Everything a host validates a call against is unchanged: the
+                // required list, `additionalProperties`, and the type and enum
+                // of every parameter the menu names. The menu names every
+                // required parameter, the verb's CORE_MENU_PARAMS, and — when
+                // the schema closes `additionalProperties` — all of them.
+                let registry_schema = without_prose(&full["inputSchema"]);
+                let menu_schema = &tool["inputSchema"];
+                for key in ["type", "required", "additionalProperties"] {
+                    assert_eq!(
+                        menu_schema.get(key),
+                        registry_schema.get(key),
+                        "{name}'s menu schema must keep `{key}`"
+                    );
+                }
+                let registry_props = registry_schema["properties"]
+                    .as_object()
+                    .expect("registry properties");
+                let menu_props = menu_schema["properties"]
+                    .as_object()
+                    .expect("menu properties");
+                for (param, schema) in menu_props {
+                    assert_eq!(
+                        Some(schema),
+                        registry_props.get(param),
+                        "{name}.{param} must keep its registry type and enum"
+                    );
+                }
+                let closed = registry_schema.get("additionalProperties")
+                    == Some(&serde_json::Value::Bool(false));
+                let named = super::CORE_MENU_PARAMS
+                    .iter()
+                    .find(|(verb, _)| *verb == name)
+                    .map(|(_, params)| *params)
+                    .unwrap_or(&[]);
+                for param in named {
+                    assert!(
+                        registry_props.contains_key(*param),
+                        "{name} names `{param}`, which its registry schema lacks"
+                    );
+                }
+                let required: Vec<&str> = registry_schema["required"]
+                    .as_array()
+                    .map(|r| r.iter().filter_map(|v| v.as_str()).collect())
+                    .unwrap_or_default();
+                let expected: BTreeSet<&str> = registry_props
+                    .keys()
+                    .map(String::as_str)
+                    .filter(|param| closed || required.contains(param) || named.contains(param))
+                    .collect();
+                let served: BTreeSet<&str> = menu_props.keys().map(String::as_str).collect();
                 assert_eq!(
-                    tool["inputSchema"],
-                    without_prose(&full["inputSchema"]),
-                    "{name}'s menu schema must keep every name, type, enum and required field"
+                    served, expected,
+                    "{name}'s menu names its required and CORE_MENU_PARAMS parameters"
                 );
             }
         }
@@ -15489,6 +15774,7 @@ mod tests {
             &serde_json::json!({
                 "agent_id": "northerner",
                 "task": "lease enforcement in the instance registry",
+                "detail": true,
             }),
         )
         .expect("north should succeed")
@@ -15973,6 +16259,7 @@ mod tests {
             &serde_json::json!({
                 "agent_id": "home-caller",
                 "task": "lease enforcement in the instance registry",
+                "detail": true,
             }),
         )
         .expect("north should succeed");
@@ -16442,6 +16729,7 @@ mod tests {
             &serde_json::json!({
                 "agent_id": "northerner",
                 "task": "lease enforcement in the instance registry",
+                "detail": true,
             }),
         )
         .expect("north should succeed on a populated graph");
@@ -16862,7 +17150,7 @@ mod tests {
         let out = super::dispatch_tool(
             &mut state,
             "north",
-            &serde_json::json!({ "agent_id": "northerner", "task": CODE_TASK }),
+            &serde_json::json!({ "agent_id": "northerner", "task": CODE_TASK, "detail": true }),
         )
         .expect("north should succeed on a source-backed graph");
 
@@ -16898,17 +17186,19 @@ mod tests {
         assert!(symbol_slice["total_lines"].as_u64().unwrap_or(0) > 130);
         assert!(symbol_slice["lines_returned"].as_u64().unwrap_or(0) >= 1);
 
-        // A node whose language yields no symbols falls through to the file
-        // head via the other composed verb rather than returning nothing.
-        let doc_slice = slices
-            .iter()
-            .find(|s| s["file_path"].as_str().unwrap_or("").ends_with(".md"))
-            .unwrap_or_else(|| panic!("the doc node must get a slice, got: {slices:#?}"));
-        assert_eq!(doc_slice["source"], "batch_view");
-        assert!(doc_slice["content"]
-            .as_str()
-            .unwrap_or_default()
-            .contains("Lease enforcement notes"));
+        // A file named only by its file node has no symbol of its own, so it
+        // gets no slice — never the head of the file — and the cut says so.
+        assert!(
+            slices
+                .iter()
+                .all(|s| !s["file_path"].as_str().unwrap_or("").ends_with(".md")),
+            "a file with no symbol in focus gets no slice, got: {slices:#?}"
+        );
+        assert_eq!(code["truncated"], true, "{code}");
+        assert!(
+            code["files_omitted"].as_u64().unwrap_or(0) >= 1,
+            "the file without a slice is counted: {code}"
+        );
     }
 
     /// The budget is caller-visible, and what it cuts is DECLARED with honest
@@ -16924,6 +17214,7 @@ mod tests {
             &serde_json::json!({
                 "agent_id": "northerner",
                 "task": CODE_TASK,
+                "detail": true,
                 "code_budget_chars": 200,
             }),
         )
@@ -16984,6 +17275,7 @@ mod tests {
             &serde_json::json!({
                 "agent_id": "northerner",
                 "task": CODE_TASK,
+                "detail": true,
                 "code": false,
             }),
         )
@@ -17065,6 +17357,7 @@ mod tests {
             &serde_json::json!({
                 "agent_id": "northerner",
                 "task": CODE_TASK,
+                "detail": true,
                 "code_budget_chars": 20000,
             }),
         )
@@ -17101,37 +17394,35 @@ mod tests {
                     );
                     assert_eq!(slice["line_end"].as_u64(), Some(focused.line_end as u64));
                 }
-                "batch_view" => {
-                    let direct = crate::surgical_handlers::handle_batch_view(
+                "view" => {
+                    let direct = crate::surgical_handlers::handle_view(
                         &mut state,
-                        crate::protocol::surgical::BatchViewInput {
+                        crate::protocol::surgical::ViewInput {
+                            file_path: file_path.clone(),
                             agent_id: "northerner".into(),
-                            files: vec![file_path.clone()],
-                            max_lines_per_file: slice["lines_returned"].as_u64().unwrap() as usize,
-                            summary_mode: false,
+                            offset: Some(slice["line_start"].as_u64().unwrap() as usize - 1),
+                            limit: Some(slice["lines_returned"].as_u64().unwrap() as usize),
                             auto_ingest: false,
                             max_output_chars: None,
                         },
                     )
-                    .expect("direct batch_view");
-                    let entry = direct.entries.first().expect("one entry");
+                    .expect("direct view");
                     assert_eq!(
                         slice["content"].as_str().unwrap_or_default(),
-                        entry.content,
-                        "north's slice must BE batch_view's rendering, byte for byte"
+                        direct.content,
+                        "north's slice must BE view's rendering, byte for byte"
                     );
                     assert_eq!(
                         slice["total_lines"].as_u64(),
-                        Some(entry.total_lines as u64)
+                        Some(direct.total_lines as u64)
                     );
                 }
                 other => panic!("unknown slice source `{other}`"),
             }
         }
         assert!(
-            slices.len() >= 2,
-            "the pin must cover both composed verbs, got {} slice(s)",
-            slices.len()
+            !slices.is_empty(),
+            "the pin must cover the composed verbs, got no slice"
         );
     }
 
@@ -17144,13 +17435,13 @@ mod tests {
         let without = super::dispatch_tool(
             &mut state,
             "north",
-            &serde_json::json!({ "agent_id": "northerner", "task": CODE_TASK, "code": false }),
+            &serde_json::json!({ "agent_id": "northerner", "task": CODE_TASK, "code": false, "detail": true }),
         )
         .expect("north without code");
         let with = super::dispatch_tool(
             &mut state,
             "north",
-            &serde_json::json!({ "agent_id": "northerner", "task": CODE_TASK }),
+            &serde_json::json!({ "agent_id": "northerner", "task": CODE_TASK, "detail": true }),
         )
         .expect("north with code");
 
@@ -17227,13 +17518,13 @@ mod tests {
         let without = super::dispatch_tool(
             &mut state,
             "north",
-            &serde_json::json!({ "agent_id": "probe", "task": task, "code": false }),
+            &serde_json::json!({ "agent_id": "probe", "task": task, "code": false, "detail": true }),
         )
         .expect("north without code");
         let with = super::dispatch_tool(
             &mut state,
             "north",
-            &serde_json::json!({ "agent_id": "probe", "task": task }),
+            &serde_json::json!({ "agent_id": "probe", "task": task, "detail": true }),
         )
         .expect("north with code");
         let before = serde_json::to_string(&without).expect("serialize").len();
@@ -17376,6 +17667,7 @@ mod tests {
             &serde_json::json!({
                 "agent_id": "northerner",
                 "task": "quantum flux capacitor tachyon inversion protocol",
+                "detail": true,
             }),
         )
         .expect("north over a non-empty store with an unmatched task");
@@ -17430,6 +17722,7 @@ mod tests {
             &serde_json::json!({
                 "agent_id": "northerner",
                 "task": "anything at all",
+                "detail": true,
             }),
         )
         .expect("north over an empty store");
@@ -17470,6 +17763,7 @@ mod tests {
             &serde_json::json!({
                 "agent_id": "northerner",
                 "task": "lease enforcement",
+                "detail": true,
             }),
         )
         .expect("north on a multi-root binding");
