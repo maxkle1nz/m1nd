@@ -6,6 +6,11 @@
 //! 12k tokens before the first call, enough that a cold session with m1nd
 //! connected cost more than the same session using plain text search.
 //!
+//! The first diet (2026-11-20) brought them to 4,951 and 9,899. A cold-agent
+//! experiment the same day still measured the card at about 5.9k tokens of the
+//! gap between a session with m1nd and one without, so the whole card is now
+//! held to 2,500 tokens: 10,000 characters for both together.
+//!
 //! This drives the real binary over stdio and measures exactly what a host
 //! receives on the default menu. Instructions are counted in characters. Tool
 //! schemas are counted with the ruler the budget was registered with: JSON with
@@ -19,9 +24,12 @@ use std::sync::mpsc::{self, Receiver};
 use std::time::{Duration, Instant};
 
 /// The server instructions: a short operating card, not the whole doctrine.
-const INSTRUCTIONS_BUDGET_CHARS: usize = 6_000;
+const INSTRUCTIONS_BUDGET_CHARS: usize = 3_000;
 /// Every advertised schema together.
-const TOOLS_LIST_BUDGET_CHARS: usize = 10_000;
+const TOOLS_LIST_BUDGET_CHARS: usize = 7_000;
+/// The whole card a session pays before its first call: instructions and
+/// `tools/list` together, about 2,500 tokens.
+const SESSION_CARD_BUDGET_CHARS: usize = 10_000;
 /// Any single advertised schema.
 const TOOL_BUDGET_CHARS: usize = 1_200;
 
@@ -224,6 +232,12 @@ fn a_session_pays_a_bounded_tax_before_its_first_call() {
         total <= TOOLS_LIST_BUDGET_CHARS,
         "tools/list is {total} characters; the budget is {TOOLS_LIST_BUDGET_CHARS}. \
          Per tool: {table}"
+    );
+    assert!(
+        instructions_chars + total <= SESSION_CARD_BUDGET_CHARS,
+        "the session card is {} characters (instructions {instructions_chars} + tools/list \
+         {total}); the budget is {SESSION_CARD_BUDGET_CHARS}",
+        instructions_chars + total
     );
     let over: Vec<&(usize, String)> = per_tool
         .iter()

@@ -2919,3 +2919,7 @@ mod tests {
 #[cfg(test)]
 #[path = "internal_tests/search_single_file_identity.rs"]
 mod single_file_identity_tests;
+
+#[cfg(test)]
+#[path = "internal_tests/search_lean_rows.rs"]
+mod search_lean_rows_tests;

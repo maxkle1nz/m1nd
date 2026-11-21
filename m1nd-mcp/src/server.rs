@@ -16485,6 +16485,363 @@ mod tests {
         );
     }
 
+    // === north lean answer (the default) ==================================
+    //
+    // Measured in a cold-agent experiment (2026-11-20): every turn re-read the
+    // 8-11 KB packet, and what the agent acted on was the file list. The
+    // default answer is that list as `path:lines symbol` lines plus one state
+    // word; `detail: true` and every abnormal state return the full packet.
+
+    /// Bytes a default north answer may take as the MCP text serves it.
+    const NORTH_DEFAULT_BUDGET_BYTES: usize = 1_500;
+
+    /// Keys a healthy default answer may carry (`_m1nd` is the envelope).
+    const NORTH_LEAN_KEYS: [&str; 8] = [
+        "_m1nd",
+        "code",
+        "focus",
+        "graph_drift",
+        "landing_bell",
+        "memory",
+        "schema",
+        "state",
+    ];
+
+    /// Distinct file paths of a list of `path:lines symbol` lines, in order.
+    fn north_line_files(packet: &serde_json::Value) -> Vec<String> {
+        let mut files: Vec<String> = Vec::new();
+        for line in packet["focus"].as_array().expect("focus lines") {
+            let line = line.as_str().expect("a focus line is a string");
+            let (address, _symbol) = line.split_once(' ').expect("`address symbol`");
+            let path = match address.rsplit_once(':') {
+                Some((path, lines))
+                    if !lines.is_empty()
+                        && lines.chars().all(|c| c.is_ascii_digit() || c == '-') =>
+                {
+                    path
+                }
+                _ => address,
+            };
+            if !files.iter().any(|f| f == path) {
+                files.push(path.to_string());
+            }
+        }
+        files
+    }
+
+    /// Distinct file paths of the full packet's focus nodes, in order.
+    fn north_focus_node_files(packet: &serde_json::Value) -> Vec<String> {
+        let mut files: Vec<String> = Vec::new();
+        for node in packet["context"]["focus_nodes"]
+            .as_array()
+            .expect("focus_nodes")
+        {
+            if let Some(path) = node["path"].as_str() {
+                if !files.iter().any(|f| f == path) {
+                    files.push(path.to_string());
+                }
+            }
+        }
+        files
+    }
+
+    #[test]
+    fn north_default_answer_is_focus_lines_and_a_state_word_inside_the_budget() {
+        let (_temp, mut state, _repo) = build_state_with_real_sources();
+
+        let out = super::dispatch_tool(
+            &mut state,
+            "north",
+            &serde_json::json!({ "agent_id": "northerner", "task": CODE_TASK }),
+        )
+        .expect("north should succeed on a source-backed graph");
+
+        let served = serde_json::to_string_pretty(&out).expect("serialize").len();
+        eprintln!("NORTH_DEFAULT bytes={served}: {out}");
+        assert!(
+            served <= NORTH_DEFAULT_BUDGET_BYTES,
+            "a default north answer is {served} bytes; the budget is {NORTH_DEFAULT_BUDGET_BYTES}"
+        );
+        for key in out.as_object().expect("object").keys() {
+            assert!(
+                NORTH_LEAN_KEYS.contains(&key.as_str()),
+                "a healthy default answer carries `{key}`: {out}"
+            );
+        }
+        for absent in [
+            "binding",
+            "context",
+            "non_claims",
+            "human_view",
+            "honest_gaps",
+            "code",
+            "recovery_playbook",
+        ] {
+            assert!(out.get(absent).is_none(), "`{absent}` rides only on detail");
+        }
+        assert_eq!(out["schema"], "m1nd-north-packet-v0");
+        let state_word = out["state"].as_str().expect("state word");
+        assert!(
+            matches!(state_word, "sufficient" | "gathering" | "saturated"),
+            "a healthy graph answers with the sufficiency verdict, got {state_word:?}"
+        );
+        let lines = out["focus"].as_array().expect("focus lines");
+        assert!(!lines.is_empty() && lines.len() <= 8, "{lines:?}");
+        assert!(
+            lines
+                .iter()
+                .any(|l| l.as_str() == Some("src/lease.rs:112-138 enforce_lease")),
+            "a symbol reads `path:start-end symbol`: {lines:?}"
+        );
+        assert!(
+            lines
+                .iter()
+                .any(|l| l.as_str() == Some("docs/lease-notes.md:1-42 (file)")),
+            "a file node reads `path:lines (file)`: {lines:?}"
+        );
+    }
+
+    #[test]
+    fn north_detail_restores_the_full_packet_with_the_same_focus() {
+        let (_temp, mut state, _repo) = build_state_with_real_sources();
+
+        let lean = super::dispatch_tool(
+            &mut state,
+            "north",
+            &serde_json::json!({ "agent_id": "northerner", "task": CODE_TASK }),
+        )
+        .expect("lean north");
+        let full = super::dispatch_tool(
+            &mut state,
+            "north",
+            &serde_json::json!({ "agent_id": "northerner", "task": CODE_TASK, "detail": true }),
+        )
+        .expect("full north");
+
+        for key in [
+            "binding",
+            "context",
+            "memory",
+            "memory_exists",
+            "sufficiency",
+            "next_move",
+            "honest_gaps",
+            "non_claims",
+            "human_view",
+            "code",
+            "proof_state",
+            "task",
+        ] {
+            assert!(
+                full.get(key).is_some(),
+                "detail must restore `{key}`: {full}"
+            );
+        }
+        assert!(full["context"]["anchors"].is_array());
+        assert_eq!(full["binding"]["trust_mode"], "full_trust");
+        assert_eq!(full["state"], lean["state"], "one state word either way");
+        assert_eq!(
+            full["focus"], lean["focus"],
+            "the same focus lines either way"
+        );
+        let files = north_line_files(&lean);
+        assert!(files.len() >= 2, "{files:?}");
+        assert_eq!(
+            files,
+            north_focus_node_files(&full),
+            "the lean file list is the full packet's, in the same order"
+        );
+    }
+
+    #[test]
+    fn north_abnormal_states_answer_in_full_without_being_asked() {
+        // An empty graph: the repair is the answer.
+        let (_temp, mut empty) = build_state();
+        let out = super::dispatch_tool(
+            &mut empty,
+            "north",
+            &serde_json::json!({ "agent_id": "northerner", "task": CODE_TASK }),
+        )
+        .expect("north on an empty graph");
+        assert_eq!(out["state"], "needs_ingest");
+        assert_eq!(out["needs"], "needs_ingest");
+        assert!(out["binding"].is_object(), "{out}");
+        assert!(out["honest_gaps"].is_array(), "{out}");
+        assert!(out["non_claims"].is_array(), "{out}");
+
+        // A caller root the graph does not cover: the warning is the answer.
+        let (temp, mut state, _repo) = build_state_with_real_sources();
+        let elsewhere = temp.path().join("repo-beta");
+        std::fs::create_dir_all(&elsewhere).expect("other root");
+        state.caller_root = Some(elsewhere.to_string_lossy().to_string());
+        let out = super::dispatch_tool(
+            &mut state,
+            "north",
+            &serde_json::json!({ "agent_id": "northerner", "task": CODE_TASK }),
+        )
+        .expect("north under a mismatch");
+        assert_eq!(out["state"], "mismatch");
+        assert_eq!(out["reception"]["match"], "caller_root_mismatch");
+        assert!(out["human_view"].is_object(), "{out}");
+        assert!(out["honest_gaps"].is_array(), "{out}");
+    }
+
+    /// A Go method is the case the file-head fallback got wrong: the symbol
+    /// extractor `surgical_context` uses does not read a receiver, so the
+    /// slice fell back to the head of the file — a copyright header. The graph
+    /// recorded the method's first line, and that is where the slice starts.
+    #[test]
+    fn north_code_is_a_symbols_own_lines_never_a_file_head() {
+        use m1nd_core::types::{EdgeDirection, FiniteF32, NodeType};
+        let temp = tempfile::tempdir().expect("tempdir");
+        let runtime_dir = temp.path().join("runtime");
+        let repo = temp.path().join("repo-alpha");
+        std::fs::create_dir_all(&runtime_dir).expect("runtime dir");
+        std::fs::create_dir_all(&repo).expect("repo dir");
+        let mut context_go = String::from("// Copyright 2014 The Authors. All rights reserved.\n");
+        context_go.push_str("package web\n");
+        for i in 0..60 {
+            context_go.push_str(&format!("// filler line {i}\n"));
+        }
+        let method_line = context_go.lines().count() as u32 + 1;
+        context_go.push_str("func (c *Context) Copy() *Context {\n");
+        context_go.push_str("\tcp := Context{engine: c.engine}\n");
+        context_go.push_str("\treturn &cp\n}\n");
+        std::fs::write(repo.join("context.go"), &context_go).expect("write context.go");
+        std::fs::write(repo.join("README.md"), "# web\n\nA framework.\n").expect("readme");
+
+        let mut graph = Graph::new();
+        let mut node = |id: &str, label: &str, kind: NodeType, path: &str, start: u32, end: u32| {
+            let node = graph
+                .add_node(id, label, kind, &[], 0.0, 0.0)
+                .expect("add node");
+            graph.set_node_provenance(
+                node,
+                NodeProvenanceInput {
+                    source_path: Some(path),
+                    line_start: Some(start),
+                    line_end: Some(end),
+                    excerpt: None,
+                    namespace: None,
+                    canonical: true,
+                },
+            );
+            node
+        };
+        let total = context_go.lines().count() as u32;
+        let file = node(
+            "file::context.go",
+            "context.go",
+            NodeType::File,
+            "context.go",
+            1,
+            total,
+        );
+        // The Go extractor records a method's first line only.
+        let copy = node(
+            "file::context.go::fn::Copy",
+            "Copy",
+            NodeType::Function,
+            "context.go",
+            method_line,
+            method_line,
+        );
+        let readme = node(
+            "file::README.md",
+            "README.md",
+            NodeType::File,
+            "README.md",
+            1,
+            3,
+        );
+        for (from, to) in [(file, copy), (copy, readme)] {
+            graph
+                .add_edge(
+                    from,
+                    to,
+                    "declares",
+                    FiniteF32::new(1.0),
+                    EdgeDirection::Forward,
+                    false,
+                    FiniteF32::new(0.9),
+                )
+                .expect("edge");
+        }
+        graph.finalize().expect("finalize graph");
+        let config = McpConfig {
+            graph_source: runtime_dir.join("graph.json"),
+            plasticity_state: runtime_dir.join("plasticity.json"),
+            registry_dir: Some(temp.path().join("registry")),
+            runtime_dir: Some(runtime_dir),
+            ..McpConfig::default()
+        };
+        let mut state =
+            SessionState::initialize(graph, &config, DomainConfig::code()).expect("init");
+        state.workspace_root = Some(repo.to_string_lossy().to_string());
+        state.ingest_roots = vec![repo.to_string_lossy().to_string()];
+        state.caller_root = Some(repo.to_string_lossy().to_string());
+
+        let out = super::dispatch_tool(
+            &mut state,
+            "north",
+            &serde_json::json!({
+                "agent_id": "northerner",
+                "task": "Context Copy method copies the context README",
+                "detail": true,
+            }),
+        )
+        .expect("north");
+        let lines = out["focus"].as_array().expect("focus");
+        assert!(
+            lines
+                .iter()
+                .any(|l| l.as_str() == Some(&format!("context.go:{method_line} Copy"))),
+            "a node with only its first line recorded reads `path:start symbol`: {lines:?}"
+        );
+        let slices = out["code"]["slices"].as_array().expect("code slices");
+        let copy_slice = slices
+            .iter()
+            .find(|s| s["file_path"] == "context.go")
+            .unwrap_or_else(|| panic!("context.go must get a slice: {slices:#?}"));
+        assert_eq!(copy_slice["source"], "view", "{copy_slice}");
+        assert_eq!(copy_slice["line_start"], method_line);
+        let content = copy_slice["content"].as_str().unwrap_or_default();
+        assert!(
+            content.contains("func (c *Context) Copy() *Context {"),
+            "the slice starts at the method: {content}"
+        );
+        assert!(
+            !content.contains("Copyright"),
+            "a slice is never the file head: {content}"
+        );
+        // Pure composition: the slice is `view`'s rendering, byte for byte.
+        let direct = crate::surgical_handlers::handle_view(
+            &mut state,
+            crate::protocol::surgical::ViewInput {
+                file_path: "context.go".into(),
+                agent_id: "northerner".into(),
+                offset: Some(method_line as usize - 1),
+                limit: Some(copy_slice["lines_returned"].as_u64().unwrap() as usize),
+                auto_ingest: false,
+                max_output_chars: None,
+            },
+        )
+        .expect("direct view");
+        assert_eq!(content, direct.content);
+        // README.md is named only by its file node: no symbol, so no slice.
+        assert!(
+            slices.iter().all(|s| s["file_path"] != "README.md"),
+            "a file with no symbol in focus gets no slice: {slices:#?}"
+        );
+        assert!(
+            out["code"]["files_total"].as_u64().unwrap_or(0)
+                > out["code"]["files_returned"].as_u64().unwrap_or(0),
+            "the file without a slice is declared: {}",
+            out["code"]
+        );
+        assert_eq!(out["code"]["truncated"], true);
+    }
+
     // === north CODE payload (the second hop, closed) ======================
     //
     // Six weeks of real agent traffic said the second round-trip never happens:
