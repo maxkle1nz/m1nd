@@ -301,9 +301,7 @@ impl QueryOrchestrator {
                 }
             }
             // Re-sort after PageRank boost.
-            activation
-                .activated
-                .sort_by_key(|entry| std::cmp::Reverse(entry.activation));
+            crate::activation::sort_activated(&mut activation.activated);
         }
 
         // Step 6: Ghost edges
@@ -485,9 +483,7 @@ impl QueryOrchestrator {
                 }
             }
             // Re-sort after PageRank boost.
-            activation
-                .activated
-                .sort_by_key(|entry| std::cmp::Reverse(entry.activation));
+            crate::activation::sort_activated(&mut activation.activated);
         }
 
         // Step 6: Ghost edges (read-only traversal; `&Graph`).
